@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import MovieGallery from "@/components/MovieGallery";
 
 type Movie = {
@@ -36,19 +37,56 @@ const TMDB = {
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
 
+// Loading component
+const MovieDetailSkeleton = () => (
+  <div className="mx-auto max-w-6xl px-4 py-8 animate-pulse">
+    <div className="h-6 bg-gray-800 rounded w-20 mb-6"></div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="aspect-[2/3] bg-gray-800 rounded-xl"></div>
+      <div className="md:col-span-2 space-y-4">
+        <div className="h-8 bg-gray-800 rounded w-3/4"></div>
+        <div className="h-4 bg-gray-800 rounded w-1/2"></div>
+        <div className="h-4 bg-gray-800 rounded w-full"></div>
+        <div className="h-4 bg-gray-800 rounded w-2/3"></div>
+      </div>
+    </div>
+  </div>
+);
+
+async function fetchMovie(id: string): Promise<Movie> {
+  const url = `${TMDB.base}/movie/${id}?api_key=${TMDB.key}&append_to_response=credits,videos,images,keywords,recommendations&include_image_language=en,null`;
+  
+  const res = await fetch(url, { 
+    next: { revalidate: 60 * 60 }, // Cache for 1 hour
+    headers: {
+      'Accept': 'application/json',
+    }
+  });
+  
+  if (!res.ok) {
+    throw new Error(`Failed to fetch movie: ${res.status}`);
+  }
+  
+  return res.json();
+}
+
 export default async function MovieDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const url = `${TMDB.base}/movie/${id}?api_key=${TMDB.key}&append_to_response=credits,videos,images,keywords,recommendations&include_image_language=en,null`;
-  const res = await fetch(url, { next: { revalidate: 60 * 60 } });
-  if (!res.ok) {
+  
+  let movie: Movie;
+  try {
+    movie = await fetchMovie(id);
+  } catch (error) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <Link href="/" className="text-white/70 hover:text-white">← Back</Link>
-        <p className="mt-6 text-white/70">Failed to load movie.</p>
+        <Link href="/" className="text-white/70 hover:text-white transition-colors">← Back</Link>
+        <div className="mt-6 text-center">
+          <p className="text-white/70 text-lg">Failed to load movie.</p>
+          <p className="text-white/50 text-sm mt-2">Please try again later.</p>
+        </div>
       </div>
     );
   }
-  const movie: Movie = await res.json();
 
   const directors = movie.credits?.crew.filter((c) => c.job === "Director") || [];
   const ytTrailer = movie.videos?.results.find((v) => v.site === "YouTube" && v.type === "Trailer");
@@ -59,175 +97,203 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
   const backdrops = movie.images?.backdrops?.slice(0, 12) || [];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <Link href="/" className="text-white/70 hover:text-white">← Back</Link>
+    <Suspense fallback={<MovieDetailSkeleton />}>
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <Link href="/" className="text-white/70 hover:text-white transition-colors">← Back</Link>
 
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-        {movie.poster_path && (
-          <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10">
-            <Image
-              src={TMDB.img(movie.poster_path, "w780")}
-              alt={movie.title}
-              fill
-              sizes="(max-width: 768px) 100vw, 33vw"
-              className="object-cover"
-            />
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+          {movie.poster_path && (
+            <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10">
+              <Image
+                src={TMDB.img(movie.poster_path, "w780")}
+                alt={movie.title}
+                fill
+                sizes="(max-width: 768px) 100vw, 33vw"
+                className="object-cover"
+                priority
+                placeholder="blur"
+                blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+              />
+            </div>
+          )}
+
+                     <div className="md:col-span-2">
+             <h1 className="text-3xl font-semibold tracking-tight">{movie.title}</h1>
+            <div className="mt-2 text-white/70 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span><span className="text-yellow-400">★</span> {movie.vote_average?.toFixed(1)}</span>
+              {movie.release_date && <span>· {movie.release_date?.slice(0, 4)}</span>}
+              {movie.runtime && <span>· {movie.runtime} min</span>}
+              {movie.popularity && <span>· Popularity {Math.round(movie.popularity)}</span>}
+            </div>
+
+            {movie.genres && movie.genres.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {movie.genres.map((g) => (
+                  <span key={g.id} className="rounded-full bg-white/10 border border-white/10 px-2 py-1 text-xs text-white/80">
+                    {g.name}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <p className="mt-4 text-white/80 leading-relaxed max-w-prose">{movie.overview}</p>
+
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-white/80">
+              <div>
+                <h3 className="font-semibold text-white mb-2">Details</h3>
+                <div className="space-y-1">
+                  {movie.release_date && (
+                    <p><span className="text-white/60">Release Date:</span> {new Date(movie.release_date).toLocaleDateString()}</p>
+                  )}
+                  {movie.runtime && (
+                    <p><span className="text-white/60">Runtime:</span> {movie.runtime} minutes</p>
+                  )}
+                  {movie.spoken_languages && movie.spoken_languages.length > 0 && (
+                    <p><span className="text-white/60">Languages:</span> {movie.spoken_languages.map(l => l.english_name).join(", ")}</p>
+                  )}
+                  {directors.length > 0 && (
+                    <p><span className="text-white/60">Director{directors.length > 1 ? 's' : ''}:</span> {directors.map(d => d.name).join(", ")}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white mb-2">Production</h3>
+                <div className="space-y-1">
+                  {movie.production_companies && movie.production_companies.length > 0 && (
+                    <p><span className="text-white/60">Companies:</span> {movie.production_companies.map(c => c.name).join(", ")}</p>
+                  )}
+                  {movie.production_countries && movie.production_countries.length > 0 && (
+                    <p><span className="text-white/60">Countries:</span> {movie.production_countries.map(c => c.name).join(", ")}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {ytTrailer && (
+              <div className="mt-6">
+                <h3 className="font-semibold text-white mb-3">Trailer</h3>
+                <a
+                  href={`https://www.youtube.com/watch?v=${ytTrailer.key}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  </svg>
+                  Watch Trailer
+                </a>
+              </div>
+            )}
           </div>
+        </div>
+
+                 {cast.length > 0 && (
+           <section className="mt-12">
+             <h2 className="text-2xl font-semibold mb-6">Cast</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {cast.map((person) => (
+                <div key={person.id} className="text-center">
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900 mb-2">
+                    {person.profile_path ? (
+                      <Image
+                        src={TMDB.img(person.profile_path, "w342")}
+                        alt={person.name}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                        className="object-cover"
+                        loading="lazy"
+                        placeholder="blur"
+                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+                      />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40 text-xs">
+                        No image
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-sm font-medium">{person.name}</p>
+                  {person.character && (
+                    <p className="text-xs text-white/60">{person.character}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
-        <div className="md:col-span-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{movie.title}</h1>
-          <div className="mt-2 text-white/70 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span><span className="text-yellow-400">★</span> {movie.vote_average?.toFixed(1)}</span>
-            {movie.release_date && <span>· {movie.release_date?.slice(0, 4)}</span>}
-            {movie.runtime && <span>· {movie.runtime} min</span>}
-            {movie.popularity && <span>· Popularity {Math.round(movie.popularity)}</span>}
-          </div>
+                 {(posters.length > 0 || backdrops.length > 0) && (
+           <section className="mt-12">
+             <h2 className="text-2xl font-semibold mb-6">Gallery</h2>
+             <MovieGallery 
+               images={[
+                 ...backdrops.map((b) => ({ src: TMDB.img(b.file_path, "w780"), alt: "Backdrop" })),
+                 ...posters.map((p) => ({ src: TMDB.img(p.file_path, "w780"), alt: "Poster" })),
+               ]}
+             />
+           </section>
+         )}
 
-          {movie.genres && movie.genres.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {movie.genres.map((g) => (
-                <span key={g.id} className="rounded-full bg-white/10 border border-white/10 px-2 py-1 text-xs text-white/80">
-                  {g.name}
+                 {keywords.length > 0 && (
+           <section className="mt-12">
+             <h2 className="text-2xl font-semibold mb-6">Keywords</h2>
+            <div className="flex flex-wrap gap-2">
+              {keywords.slice(0, 20).map((keyword) => (
+                <span
+                  key={keyword.id}
+                  className="rounded-full bg-white/10 border border-white/10 px-3 py-1 text-sm text-white/80"
+                >
+                  {keyword.name}
                 </span>
               ))}
             </div>
-          )}
+          </section>
+        )}
 
-          <p className="mt-4 text-white/80 leading-relaxed max-w-prose">{movie.overview}</p>
-
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-white/80">
-            <div>
-              <h3 className="text-white/60 text-xs uppercase tracking-wide">Languages</h3>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {(movie.spoken_languages || []).map((l) => (
-                  <span key={l.iso_639_1} className="rounded bg-white/10 px-2 py-1">{l.english_name || l.name}</span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-white/60 text-xs uppercase tracking-wide">Production Countries</h3>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {(movie.production_countries || []).map((c) => (
-                  <span key={c.iso_3166_1} className="rounded bg-white/10 px-2 py-1">{c.name}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {movie.production_companies && movie.production_companies.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-white/60 text-xs uppercase tracking-wide">Production Companies</h3>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                {movie.production_companies.map((pc) => (
-                  <div key={pc.id} className="flex items-center gap-2">
-                    {pc.logo_path ? (
-                      <Image src={TMDB.img(pc.logo_path, "w185")} alt={pc.name} width={40} height={20} className="object-contain mix-blend-screen" />
-                    ) : null}
-                    <span className="text-white/80 text-sm">{pc.name}</span>
+                 {recs.length > 0 && (
+           <section className="mt-12">
+             <h2 className="text-2xl font-semibold mb-6">Recommended Movies</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {recs.map((rec) => (
+                <Link key={rec.id} href={`/movie/${rec.id}`} className="group">
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                    {rec.poster_path ? (
+                      <Image
+                        src={TMDB.img(rec.poster_path, "w500")}
+                        alt={rec.title}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                        loading="lazy"
+                        placeholder="blur"
+                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+                      />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">
+                        No image
+                      </div>
+                    )}
+                    <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+                      <span className="text-yellow-400">★</span>
+                      {rec.vote_average.toFixed(1)}
+                    </div>
                   </div>
-                ))}
-              </div>
+                                     <div className="mt-2">
+                     <h3 className="font-medium text-base line-clamp-2 group-hover:text-white/80 transition-colors">
+                       {rec.title}
+                     </h3>
+                     <p className="text-white/60 text-xs mt-1">
+                       {rec.release_date?.split("-")[0] || "N/A"}
+                     </p>
+                   </div>
+                </Link>
+              ))}
             </div>
-          )}
-
-          {directors.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-white/60 text-xs uppercase tracking-wide">Director(s)</h3>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {directors.map((d) => (
-                  <span key={d.id} className="rounded bg-white/10 px-2 py-1">{d.name}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {ytTrailer && (
-            <div className="mt-6">
-              <h3 className="text-white/60 text-xs uppercase tracking-wide">Trailer</h3>
-              <a
-                href={`https://www.youtube.com/watch?v=${ytTrailer.key}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-2 rounded-full bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90"
-              >
-                Watch on YouTube
-              </a>
-            </div>
-          )}
-        </div>
+          </section>
+        )}
       </div>
-
-      {cast.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-white/80 text-sm mb-3">Cast</h2>
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4">
-            {cast.map((person) => (
-              <div key={person.id} className="text-center">
-                {person.profile_path ? (
-                  <Image
-                    src={TMDB.img(person.profile_path, "w185")}
-                    alt={person.name}
-                    width={185}
-                    height={278}
-                    className="h-44 w-full object-cover rounded-lg border border-white/10"
-                  />
-                ) : (
-                  <div className="h-44 w-full rounded-lg grid place-content-center border border-white/10 text-white/40 text-xs">No photo</div>
-                )}
-                <div className="mt-2 text-xs text-white/90 truncate">{person.name}</div>
-                {person.character && (
-                  <div className="text-[11px] text-white/60 truncate">as {person.character}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {(posters.length > 0 || backdrops.length > 0) && (
-        <MovieGallery
-          title="Gallery"
-          images={[
-            ...backdrops.map((b) => ({ src: TMDB.img(b.file_path, "w780"), alt: "Backdrop" })),
-            ...posters.map((p) => ({ src: TMDB.img(p.file_path, "w780"), alt: "Poster" })),
-          ]}
-        />
-      )}
-
-      {keywords.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-white/80 text-sm mb-3">Keywords</h2>
-          <div className="flex flex-wrap gap-2">
-            {keywords.map((k) => (
-              <span key={k.id} className="rounded-full bg-white/10 border border-white/10 px-2 py-1 text-xs text-white/80">
-                {k.name}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {recs.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-white/80 text-sm mb-3">Recommended</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {recs.map((m) => (
-              <Link key={m.id} href={`/movie/${m.id}`} className="group">
-                <div className="relative overflow-hidden rounded-xl bg-[--color-card] border border-white/5">
-                  {m.poster_path ? (
-                    <Image src={TMDB.img(m.poster_path, "w342")} alt={m.title} width={342} height={513} className="h-64 w-full object-cover group-hover:opacity-90 transition" />
-                  ) : (
-                    <div className="h-64 w-full grid place-content-center text-white/40 text-sm">No image</div>
-                  )}
-                </div>
-                <div className="mt-2 text-xs text-white/90 truncate">{m.title}</div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
+    </Suspense>
   );
 }
 
