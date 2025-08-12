@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+@theme {
+  --color-bg: #0b0b0f;
+  --color-card: #121218;
+  --color-muted: #8b8b95;
+  --color-primary: #e50914;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: white;
+}
+
+.glass {
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0.02)
+    );
+  backdrop-filter: blur(10px);
+}
+
+.fade-in {
+  animation: fade-in 400ms ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
