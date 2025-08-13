@@ -394,6 +394,24 @@ function HomeContent() {
     return trending[0];
   }, [query, trending]);
 
+  // Hero carousel state
+  const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
+  const heroMovies = useMemo(() => {
+    if (query || !trending || trending.length === 0) return [];
+    return trending.slice(0, 5); // Show first 5 trending movies in carousel
+  }, [query, trending]);
+
+  // Auto-advance hero carousel
+  useEffect(() => {
+    if (heroMovies.length <= 1) return;
+    
+    const interval = setInterval(() => {
+      setCurrentHeroIndex((prev) => (prev + 1) % heroMovies.length);
+    }, 5000); // Change every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [heroMovies.length]);
+
   // Recent browsing (views + searches)
   const [recentViews, setRecentViews] = useState<{ id: number; title: string; poster_path: string | null }[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -580,7 +598,7 @@ function HomeContent() {
         </header>
 
         <main className="mx-auto max-w-7xl px-4 py-8 cv-auto">
-          {!query && featured && (
+          {!query && heroMovies.length > 0 && (
             <motion.section
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -588,26 +606,58 @@ function HomeContent() {
               className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 group"
             >
               <div className="relative h-[62vh] sm:h-[68vh] md:aspect-[16/9] md:h-auto">
-                {featured.backdrop_path || featured.poster_path ? (
+                {/* Hero Carousel Images */}
+                {heroMovies.map((movie, index) => (
                   <motion.div
+                    key={movie.id}
                     className="absolute inset-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ 
+                      opacity: index === currentHeroIndex ? 1 : 0,
+                      scale: index === currentHeroIndex ? 1 : 1.05
+                    }}
+                    transition={{ 
+                      duration: 0.8, 
+                      ease: "easeInOut",
+                      delay: index === currentHeroIndex ? 0 : 0.1
+                    }}
                     whileHover={{ scale: 1.03 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
                   >
-                    <Image
-                      src={TMDB.img(featured.backdrop_path || featured.poster_path || "", "original")}
-                      alt={featured.title || featured.name || "Featured"}
-                      fill
-                      sizes="100vw"
-                      className="object-cover"
-                      priority
-                      placeholder="blur"
-                      blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
-                    />
+                    {movie.backdrop_path || movie.poster_path ? (
+                      <Image
+                        src={TMDB.img(movie.backdrop_path || movie.poster_path || "", "original")}
+                        alt={movie.title || movie.name || "Featured"}
+                        fill
+                        sizes="100vw"
+                        className="object-cover"
+                        priority={index === 0}
+                        loading={index === 0 ? "eager" : "lazy"}
+                        placeholder="blur"
+                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+                      />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40">
+                        No preview
+                      </div>
+                    )}
                   </motion.div>
-                ) : (
-                  <div className="absolute inset-0 grid place-content-center text-white/40">
-                    No preview
+                ))}
+                
+                {/* Carousel Indicators */}
+                {heroMovies.length > 1 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                    {heroMovies.map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setCurrentHeroIndex(index)}
+                        className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                          index === currentHeroIndex 
+                            ? 'bg-white w-6' 
+                            : 'bg-white/60'
+                        }`}
+                        aria-label={`Go to slide ${index + 1}`}
+                      />
+                    ))}
                   </div>
                 )}
                 <motion.div
@@ -620,6 +670,7 @@ function HomeContent() {
 
               <div className="absolute inset-0 flex items-end">
                 <motion.div
+                  key={heroMovies[currentHeroIndex]?.id}
                   className="p-6 sm:p-10 max-w-2xl"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -631,7 +682,7 @@ function HomeContent() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.45, ease: "easeOut" }}
                   >
-                    {featured.title || featured.name}
+                    {heroMovies[currentHeroIndex]?.title || heroMovies[currentHeroIndex]?.name}
                   </motion.h1>
                   <motion.p
                     className="mt-2 text-white/80 line-clamp-3"
@@ -639,7 +690,7 @@ function HomeContent() {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.55, ease: "easeOut" }}
                   >
-                    {featured.overview}
+                    {heroMovies[currentHeroIndex]?.overview}
                   </motion.p>
                   <motion.div
                     className="mt-4 flex gap-3"
@@ -652,7 +703,7 @@ function HomeContent() {
                       whileTap={{ scale: 0.95 }}
                     >
                       <Link
-                        href={`/movie/${featured.id}`}
+                        href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
                         className="inline-flex items-center gap-2 rounded-full bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90 transition-colors"
                       >
                         <Play className="size-4" /> Play
@@ -663,7 +714,7 @@ function HomeContent() {
                       whileTap={{ scale: 0.95 }}
                     >
                       <Link
-                        href={`/movie/${featured.id}`}
+                        href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
                         className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 transition-colors"
                       >
                         <Info className="size-4" /> More info
