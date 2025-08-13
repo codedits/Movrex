@@ -307,7 +307,41 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
           <FadeIn>
           <section className="mt-12">
             <h2 className="text-2xl font-semibold mb-6">Cast</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* Mobile: Horizontal scroll, Desktop: Grid */}
+            <div className="block sm:hidden">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                {cast.map((person) => (
+                  <ScaleIn key={person.id}>
+                  <div className="text-center w-[120px] shrink-0">
+                    <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900 mb-2">
+                      {person.profile_path ? (
+                        <Image
+                          src={TMDB.img(person.profile_path, "w342")}
+                          alt={person.name}
+                          fill
+                          sizes="120px"
+                          className="object-cover"
+                          loading="lazy"
+                          placeholder="blur"
+                          blurDataURL={BLUR_DATA_URL}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 grid place-content-center text-white/40 text-xs">
+                          No image
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium line-clamp-2">{person.name}</p>
+                    {person.character && (
+                      <p className="text-xs text-white/60 line-clamp-2">{person.character}</p>
+                    )}
+                  </div>
+                  </ScaleIn>
+                ))}
+              </div>
+            </div>
+            {/* Desktop Grid */}
+            <div className="hidden sm:grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {cast.map((person) => (
                 <ScaleIn key={person.id}>
                 <div className="text-center">
@@ -317,7 +351,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
                         src={TMDB.img(person.profile_path, "w342")}
                         alt={person.name}
                         fill
-                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                        sizes="(max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
                         className="object-cover"
                         loading="lazy"
                         placeholder="blur"
@@ -378,7 +412,49 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
           <section className="mt-12">
             <h2 className="text-2xl font-semibold mb-6">Similar Movies</h2>
             <p className="text-white/60 text-sm mb-4">Movies with similar themes and keywords to this movie</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* Mobile: Horizontal scroll, Desktop: Grid */}
+            <div className="block sm:hidden">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                {similarMovies.map((rec: Movie) => (
+                  <Link key={rec.id} href={`/movie/${rec.id}`} className="group w-[140px] shrink-0">
+                    <ScaleIn>
+                    <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                      {rec.poster_path ? (
+                        <Image
+                          src={TMDB.img(rec.poster_path, "w500")}
+                          alt={rec.title}
+                          fill
+                          sizes="140px"
+                          className="object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                          placeholder="blur"
+                          blurDataURL={BLUR_DATA_URL}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">
+                          No image
+                        </div>
+                      )}
+                      <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+                        <span className="text-yellow-400">★</span>
+                        {rec.vote_average.toFixed(1)}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <h3 className="font-medium text-sm line-clamp-2 group-hover:text-white/80 transition-colors">
+                        {rec.title}
+                      </h3>
+                      <p className="text-white/60 text-xs mt-1">
+                        {rec.release_date?.split("-")[0] || "N/A"}
+                      </p>
+                    </div>
+                    </ScaleIn>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* Desktop Grid */}
+            <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {similarMovies.map((rec: Movie) => (
                 <Link key={rec.id} href={`/movie/${rec.id}`} className="group">
                   <ScaleIn>
@@ -388,7 +464,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
                         src={TMDB.img(rec.poster_path, "w500")}
                         alt={rec.title}
                         fill
-                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                        sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 16vw"
                         className="object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                         placeholder="blur"
@@ -422,7 +498,49 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
         {recs.length > 0 && (
           <section className="mt-12">
             <h2 className="text-2xl font-semibold mb-6">Recommended Movies</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* Mobile: Horizontal scroll, Desktop: Grid */}
+            <div className="block sm:hidden">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                {recs.map((rec) => (
+                  <Link key={rec.id} href={`/movie/${rec.id}`} className="group w-[140px] shrink-0">
+                    <ScaleIn>
+                    <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                      {rec.poster_path ? (
+                        <Image
+                          src={TMDB.img(rec.poster_path, "w500")}
+                          alt={rec.title}
+                          fill
+                          sizes="140px"
+                          className="object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                          placeholder="blur"
+                          blurDataURL={BLUR_DATA_URL}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">
+                          No image
+                        </div>
+                        )}
+                      <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+                        <span className="text-yellow-400">★</span>
+                        {rec.vote_average.toFixed(1)}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <h3 className="font-medium text-sm line-clamp-2 group-hover:text-white/80 transition-colors">
+                        {rec.title}
+                      </h3>
+                      <p className="text-white/60 text-xs mt-1">
+                        {rec.release_date?.split("-")[0] || "N/A"}
+                      </p>
+                    </div>
+                    </ScaleIn>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* Desktop Grid */}
+            <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {recs.map((rec) => (
                 <Link key={rec.id} href={`/movie/${rec.id}`} className="group">
                   <ScaleIn>
@@ -432,7 +550,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
                         src={TMDB.img(rec.poster_path, "w500")}
                         alt={rec.title}
                         fill
-                        sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+                        sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 16vw"
                         className="object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                         placeholder="blur"
