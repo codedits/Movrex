@@ -44,66 +44,7 @@ const TMDB = {
 // Constants for repeated blur data URLs
 const BLUR_DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q==";
 
-// Utility function to get personalized recommendations based on current movie keywords
-async function getPersonalizedRecommendations(
-  currentMovieKeywords: string[], 
-  limit: number = 12
-): Promise<Movie[]> {
-  try {
-    console.log('🔍 Starting personalized recommendations...');
-    console.log('Current movie keywords:', currentMovieKeywords);
-    
-    if (currentMovieKeywords.length === 0) {
-      console.log('❌ No keywords available for recommendations');
-      return [];
-    }
-    
-    // Get recommendations for each keyword
-    const recommendationsPromises = currentMovieKeywords.slice(0, 5).map(async (keyword) => {
-      const url = `${TMDB.base}/search/movie?api_key=${TMDB.key}&query=${encodeURIComponent(keyword)}&sort_by=vote_average.desc&vote_count.gte=100&page=1`;
-      console.log(`🔎 Searching for: ${keyword}`);
-      
-      const res = await fetch(url, { next: { revalidate: 60 * 30 } }); // Cache for 30 minutes
-      
-      if (res.ok) {
-        const data = await res.json();
-        // Filter for highly rated movies (7.0+ rating)
-        const highRatedResults = data.results?.filter((movie: Movie) => 
-          movie.vote_average >= 7.0 && movie.vote_count >= 100
-        ).slice(0, 4) || [];
-        console.log(`✅ Found ${highRatedResults.length} highly rated results for "${keyword}"`);
-        return highRatedResults;
-      } else {
-        console.log(`❌ Failed to fetch for "${keyword}": ${res.status}`);
-        return [];
-      }
-    });
-    
-    const allResults = await Promise.all(recommendationsPromises);
-    const flatResults = allResults.flat();
-    console.log('Total results before deduplication:', flatResults.length);
-    
-    // Remove duplicates
-    const uniqueResults = flatResults.filter((movie, index, self) => 
-      index === self.findIndex(m => m.id === movie.id)
-    );
-    console.log('Unique results after deduplication:', uniqueResults.length);
-    
-    // Sort by rating (highest first) and then by popularity
-    const sortedResults = uniqueResults.sort((a, b) => 
-      (b.vote_average || 0) - (a.vote_average || 0) || (b.popularity || 0) - (a.popularity || 0)
-    );
-    
-    const finalResults = sortedResults.slice(0, limit);
-    console.log('🎯 Final personalized recommendations:', finalResults.length);
-    console.log('Sample titles:', finalResults.slice(0, 3).map(m => m.title));
-    
-    return finalResults;
-  } catch (error) {
-    console.error('❌ Error in getPersonalizedRecommendations:', error);
-    return [];
-  }
-}
+
 
 // Watch providers (where to watch)
 type Provider = { provider_id: number; provider_name: string; logo_path: string | null };
@@ -173,6 +114,16 @@ async function fetchMovie(id: string): Promise<Movie> {
   return res.json();
 }
 
+// Optimized parallel data fetching
+async function fetchMovieData(id: string) {
+  const [movie, watchProviders] = await Promise.all([
+    fetchMovie(id),
+    fetchWatchProviders(id)
+  ]);
+  
+  return { movie, watchProviders: watchProviders };
+}
+
 export default async function MovieDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   
@@ -198,69 +149,11 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
   const recs = movie.recommendations?.results?.slice(0, 12) || [];
   const posters = movie.images?.posters?.slice(0, 12) || [];
   const backdrops = movie.images?.backdrops?.slice(0, 12) || [];
-  // Fetch watch providers
+  // Fetch watch providers in parallel with movie data
   const watch = await fetchWatchProviders(id);
 
-  // Get personalized recommendations based on current movie keywords
-  let personalizedRecs: Movie[] = [];
-  // Get collection parts if the movie belongs to a collection (e.g., Mission: Impossible series)
-  let collectionParts: Movie[] = [];
-  
-  try {
-    personalizedRecs = await getPersonalizedRecommendations(
-      keywords.map(k => k.name), // Use current movie keywords for recommendations
-      6
-    );
-  } catch (error) {
-    console.error('❌ Error calling getPersonalizedRecommendations:', error);
-    // Fallback: get some basic recommendations based on genres
-    if (movie.genres && movie.genres.length > 0) {
-      try {
-        const fallbackUrl = `${TMDB.base}/discover/movie?api_key=${TMDB.key}&with_genres=${movie.genres[0].id}&sort_by=vote_average.desc&vote_count.gte=100&page=1`;
-        const fallbackRes = await fetch(fallbackUrl, { next: { revalidate: 60 * 30 } });
-        if (fallbackRes.ok) {
-          const fallbackData = await fallbackRes.json();
-          // Filter for highly rated movies (7.0+ rating)
-          const highRatedFallback = fallbackData.results?.filter((movie: Movie) => 
-            movie.vote_average >= 7.0 && movie.vote_count >= 100
-          ).slice(0, 6) || [];
-          personalizedRecs = highRatedFallback;
-          console.log('🔄 Using fallback recommendations:', personalizedRecs.length);
-        }
-      } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
-      }
-    }
-  }
-  // Try to fetch collection parts
-  try {
-    const collectionId = movie.belongs_to_collection?.id;
-    if (collectionId) {
-      const collUrl = `${TMDB.base}/collection/${collectionId}?api_key=${TMDB.key}`;
-      const collRes = await fetch(collUrl, { next: { revalidate: 60 * 60 } });
-      if (collRes.ok) {
-        const collData = await collRes.json();
-        const parts: Movie[] = Array.isArray(collData?.parts) ? collData.parts : [];
-        // Exclude the current movie from the collection list
-        collectionParts = parts.filter((p) => p && p.id !== movie.id);
-      }
-    }
-  } catch (err) {
-    console.error('❌ Error fetching collection parts:', err);
-  }
-  
-  console.log('🎯 Personalized recommendations result:', personalizedRecs.length, 'movies');
-  console.log('📚 Collection parts found:', collectionParts.length);
-  if (personalizedRecs.length > 0) {
-    console.log('Sample personalized movies:', personalizedRecs.slice(0, 3).map(m => m.title));
-  } else {
-    console.log('⚠️ No personalized recommendations found');
-  }
-
-  // Merge collection parts into Similar Movies, de-duplicate, and limit
-  const mergedSimilar: Movie[] = [...collectionParts, ...personalizedRecs].filter((m, idx, arr) =>
-    idx === arr.findIndex((x) => x.id === m.id)
-  ).slice(0, 12);
+  // Use built-in TMDB recommendations for faster loading
+  const similarMovies = recs.slice(0, 12);
 
   return (
     <Suspense fallback={<MovieDetailSkeleton />}>
@@ -481,12 +374,12 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
         )}
 
         {/* Similar Movies (Collection parts + keyword-based) */}
-        {mergedSimilar.length > 0 && (
+        {similarMovies.length > 0 && (
           <section className="mt-12">
             <h2 className="text-2xl font-semibold mb-6">Similar Movies</h2>
             <p className="text-white/60 text-sm mb-4">Movies with similar themes and keywords to this movie</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {mergedSimilar.map((rec) => (
+              {similarMovies.map((rec: Movie) => (
                 <Link key={rec.id} href={`/movie/${rec.id}`} className="group">
                   <ScaleIn>
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">

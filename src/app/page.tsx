@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
-import { Search, Play, Info } from "lucide-react";
+import { Search, Play, Info, ArrowRight } from "lucide-react";
 import useScrollDirection from "@/hooks/useScrollDirection";
 import LoadingScreen from "@/components/LoadingScreen";
 // Defer rarely-needed components
@@ -401,17 +401,6 @@ function HomeContent() {
     return trending.slice(0, 5); // Show first 5 trending movies in carousel
   }, [query, trending]);
 
-  // Auto-advance hero carousel
-  useEffect(() => {
-    if (heroMovies.length <= 1) return;
-    
-    const interval = setInterval(() => {
-      setCurrentHeroIndex((prev) => (prev + 1) % heroMovies.length);
-    }, 5000); // Change every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [heroMovies.length]);
-
   // Recent browsing (views + searches)
   const [recentViews, setRecentViews] = useState<{ id: number; title: string; poster_path: string | null }[]>([]);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -488,21 +477,22 @@ function HomeContent() {
   return (
     <>
       <LoadingScreen isLoading={showLoadingScreen} />
-      <motion.div 
-        className="min-h-screen"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: isInitialLoad ? 0 : 1 }}
-        transition={{ duration: 0.8, delay: 0.2 }}
-      >
-        <header className={`sticky top-0 z-[9999] transition-transform duration-300 will-change-transform bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`}>
+              <motion.div 
+          className="min-h-screen"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isInitialLoad ? 0 : 1 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          style={{ willChange: 'auto' }}
+        >
+        <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
           <div className="mx-auto max-w-7xl px-0 py-3">
-            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 glass px-3 sm:px-4 py-2.5 sm:py-3">
+                          <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2.5 sm:py-3">
               <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight shrink-0">
                 <Image src="/movrex.svg" alt="Movrex" width={24} height={24} priority />
                 <span><span className="text-[--color-primary]">Mov</span>rex</span>
               </Link>
               <div className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-white/60" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
                 <input
                   placeholder="Search movies or actors..."
                   value={query}
@@ -516,7 +506,7 @@ function HomeContent() {
                       setPersonSuggestion(null);
                     }
                   }}
-                  className="w-full rounded-xl bg-white/5 border border-white/10 pl-11 pr-10 py-2 outline-none focus:ring-2 focus:ring-white/20 transition text-sm sm:text-base"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2.5 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 transition text-sm sm:text-base placeholder:text-white/50"
                 />
                 {query && (
                   <button
@@ -539,13 +529,23 @@ function HomeContent() {
                 )}
                 {personSuggestion && !isActorMode && query.trim() && (
                   <div className="absolute left-0 right-0 top-full mt-2 z-[10000]">
-                    <div className="rounded-xl border border-white/10 glass p-3 flex items-center justify-between gap-3">
-                      <div className="text-sm text-white/80">
-                        Show movies from &quot;<span className="text-white font-medium">{personSuggestion.name}</span>&quot;?
+                    <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-3 flex items-center justify-between gap-3 shadow-2xl">
+                      <div className="text-sm text-white/90">
+                        Show movies from &quot;<span className="text-white font-semibold">{personSuggestion.name}</span>&quot;?
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={handleConfirmActor} className="px-3 py-1.5 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90">Show</button>
-                        <button onClick={handleDismissSuggestion} className="px-3 py-1.5 rounded-lg border border-white/15 text-white/80 text-sm hover:bg-white/10">Dismiss</button>
+                        <button 
+                          onClick={handleConfirmActor} 
+                          className="px-3 py-1.5 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-colors shadow-lg"
+                        >
+                          Show
+                        </button>
+                        <button 
+                          onClick={handleDismissSuggestion} 
+                          className="px-3 py-1.5 rounded-lg border border-white/30 text-white/90 text-sm hover:bg-white/20 transition-colors"
+                        >
+                          Dismiss
+                      </button>
                       </div>
                     </div>
                   </div>
@@ -573,7 +573,7 @@ function HomeContent() {
               </nav>
             </div>
             <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
-              <div className="flex items-center gap-1 w-max">
+              <div className="flex items-center gap-2 w-max pb-1">
                 {([
                   { key: "trending", label: "Trending" },
                   { key: "popular", label: "Popular" },
@@ -583,10 +583,10 @@ function HomeContent() {
                   <button
                     key={tab.key}
                     onClick={() => handleCategoryChange(tab.key)}
-                    className={`rounded-full px-3 py-1.5 text-sm border transition ${
+                    className={`rounded-full px-4 py-2 text-sm border transition-all duration-200 ${
                       category === tab.key
-                        ? "bg-white text-black border-white"
-                        : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                        ? "bg-white text-black border-white shadow-lg"
+                        : "bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:border-white/30"
                     }`}
                   >
                     {tab.label}
@@ -605,23 +605,21 @@ function HomeContent() {
               transition={{ duration: 0.6, ease: "easeOut" }}
               className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 group"
             >
-              <div className="relative h-[62vh] sm:h-[68vh] md:aspect-[16/9] md:h-auto">
+              <div className="relative h-[50vh] sm:h-[62vh] md:h-[68vh] lg:aspect-[16/9] lg:h-auto">
                 {/* Hero Carousel Images */}
                 {heroMovies.map((movie, index) => (
                   <motion.div
                     key={movie.id}
                     className="absolute inset-0"
-                    initial={{ opacity: 0 }}
+                    initial={{ opacity: 0, scale: 1.05 }}
                     animate={{ 
                       opacity: index === currentHeroIndex ? 1 : 0,
                       scale: index === currentHeroIndex ? 1 : 1.05
                     }}
                     transition={{ 
-                      duration: 0.8, 
-                      ease: "easeInOut",
-                      delay: index === currentHeroIndex ? 0 : 0.1
+                      duration: 0.6, 
+                      ease: "easeInOut"
                     }}
-                    whileHover={{ scale: 1.03 }}
                   >
                     {movie.backdrop_path || movie.poster_path ? (
                       <Image
@@ -642,24 +640,6 @@ function HomeContent() {
                     )}
                   </motion.div>
                 ))}
-                
-                {/* Carousel Indicators */}
-                {heroMovies.length > 1 && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
-                    {heroMovies.map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setCurrentHeroIndex(index)}
-                        className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                          index === currentHeroIndex 
-                            ? 'bg-white w-6' 
-                            : 'bg-white/60'
-                        }`}
-                        aria-label={`Go to slide ${index + 1}`}
-                      />
-                    ))}
-                  </div>
-                )}
                 <motion.div
                   className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"
                   initial={{ opacity: 0 }}
@@ -671,13 +651,13 @@ function HomeContent() {
               <div className="absolute inset-0 flex items-end">
                 <motion.div
                   key={heroMovies[currentHeroIndex]?.id}
-                  className="p-6 sm:p-10 max-w-2xl"
+                  className="p-4 sm:p-6 md:p-10 max-w-full sm:max-w-2xl"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
                 >
                   <motion.h1
-                    className="text-2xl sm:text-3xl font-semibold tracking-tight"
+                    className="text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight leading-tight"
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.45, ease: "easeOut" }}
@@ -685,7 +665,7 @@ function HomeContent() {
                     {heroMovies[currentHeroIndex]?.title || heroMovies[currentHeroIndex]?.name}
                   </motion.h1>
                   <motion.p
-                    className="mt-2 text-white/80 line-clamp-3"
+                    className="mt-2 text-white/90 line-clamp-2 sm:line-clamp-3 text-sm sm:text-base"
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.55, ease: "easeOut" }}
@@ -693,7 +673,7 @@ function HomeContent() {
                     {heroMovies[currentHeroIndex]?.overview}
                   </motion.p>
                   <motion.div
-                    className="mt-4 flex gap-3"
+                    className="mt-3 sm:mt-4 flex items-center gap-2 sm:gap-3"
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, delay: 0.6, ease: "easeOut" }}
@@ -704,21 +684,21 @@ function HomeContent() {
                     >
                       <Link
                         href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
-                        className="inline-flex items-center gap-2 rounded-full bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90 transition-colors"
+                        className="inline-flex items-center gap-2 rounded-full bg-white text-black px-3 py-1.5 text-sm font-medium hover:bg-white/90 transition-colors shadow-lg"
                       >
-                        <Play className="size-4" /> Play
+                        <Info className="size-4" /> View Details
                       </Link>
                     </motion.div>
                     <motion.div
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      <Link
-                        href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
-                        className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 transition-colors"
+                      <button
+                        onClick={() => setCurrentHeroIndex((prev) => (prev + 1) % heroMovies.length)}
+                        className="inline-flex items-center gap-2 rounded-full bg-white/20 border border-white/30 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/30 transition-colors"
                       >
-                        <Info className="size-4" /> More info
-                      </Link>
+                        <ArrowRight className="size-4" /> Next
+                      </button>
                     </motion.div>
                   </motion.div>
                 </motion.div>
@@ -746,7 +726,7 @@ function HomeContent() {
             {loading && <div className="mt-2 text-white/60" aria-live="polite">Loading...</div>}
           </motion.div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
             {loading ? (
               // Show skeleton loaders while loading
               Array.from({ length: 18 }).map((_, i) => (
@@ -761,7 +741,7 @@ function HomeContent() {
                   transition={{ duration: 0.3 }}
                   className="group"
                 >
-                  <Link href={`/movie/${movie.id}`} className="block">
+                  <Link href={`/movie/${movie.id}`} className="block" prefetch={true}>
                     <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                       {movie.poster_path ? (
                         <Image
@@ -890,7 +870,7 @@ function HomeContent() {
                   <div className="text-sm text-white/60 mb-2">Recently viewed</div>
                   <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                     {recentViews.slice(0, 12).map((v) => (
-                      <Link key={v.id} href={`/movie/${v.id}`} className="w-[110px] shrink-0">
+                      <Link key={v.id} href={`/movie/${v.id}`} className="w-[110px] shrink-0" prefetch={true}>
                         <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-gray-900">
                           {v.poster_path ? (
                             <Image src={TMDB.img(v.poster_path, 'w300')} alt={v.title} fill sizes="20vw" className="object-cover" />
@@ -931,7 +911,7 @@ function HomeContent() {
             <h3 className="text-lg font-semibold mb-2">Now trending</h3>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                     {trending.slice(0, 12).map((m) => (
-                      <Link key={m.id} href={`/movie/${m.id}`} className="w-[110px] shrink-0">
+                      <Link key={m.id} href={`/movie/${m.id}`} className="w-[110px] shrink-0" prefetch={true}>
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-gray-900">
                     {m.poster_path ? (
                       <Image src={TMDB.img(m.poster_path, 'w300')} alt={m.title || m.name || 'Movie'} fill sizes="20vw" className="object-cover" />

@@ -13,6 +13,11 @@ body {
   background: var(--color-bg);
   color: white;
   font-family: 'Poppins', sans-serif;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .glass {
@@ -27,8 +32,19 @@ body {
 /* Reduce blur intensity on small screens for better perf */
 @media (max-width: 640px) {
   .glass {
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  
+  /* Disable complex animations on mobile for better performance */
+  * {
+    scroll-behavior: auto;
+  }
+  
+  /* Reduce motion on mobile */
+  .motion-reduce-mobile {
+    animation-duration: 0.3s !important;
+    transition-duration: 0.3s !important;
   }
 }
 
