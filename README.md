@@ -14,6 +14,34 @@ A Netflix-inspired movie recommendation web application built with Next.js 15, f
 - **Interactive Navigation**: Category-based filtering with smooth transitions
 - **Responsive Design**: Optimized for desktop, tablet, and mobile devices
 
+### 🆕 What’s New (Session Updates)
+- **Movie Master Chat (floating widget)**
+  - Bottom-right logo button opens a sleek chat powered by the BK9 API
+  - Bold movie titles in responses are clickable and trigger an in-app search
+  - Shows only after the loading screen; hides during load
+  - Footer-triggered helper popup (“finding something? need help?”) appears once per page load
+  - Mobile-optimized: safe-area offsets, larger tap targets, keyboard-safe padding
+- **Actor Search Suggestion**
+  - If your search matches a person, a confirmation popup lets you show that actor’s films
+  - Enter key to confirm; actor mode paginates and includes a Clear button
+- **Where to Watch (Watch Providers)**
+  - Movie detail page shows “Where to watch · REGION” chips from TMDB watch/providers
+  - Prioritizes Stream → Rent → Buy; deep-links to platform page
+- **Continue Browsing & Trends**
+  - Recently viewed row (localStorage, capped 12, 15‑day expiry)
+  - Recent searches chips (deduped, capped 10, 15‑day expiry)
+  - “Now trending” mini‑carousel on the home page
+- **Performance & UX Polish**
+  - Preconnect/dns-prefetch for `image.tmdb.org` and `api.bk9.dev`
+  - Reduced heavy blur on mobile; smoother header animation (higher threshold, will-change)
+  - Content-visibility for heavy sections; thin global scrollbars
+  - Lighter hero image settings (removed quality=100)
+- **SEO Enhancements**
+  - Rich metadata: OpenGraph/Twitter, canonical, keywords, theme-color & viewport
+  - JSON‑LD WebSite + SearchAction schema
+
+> Note: The earlier “context‑aware AI” feature was removed by request. Chat does not read the current page context.
+
 ### 🎨 Modern UI/UX
 - **Hide-on-Scroll Navbar**: Navbar slides up when scrolling down, reappears when scrolling up
 - **Hero Banner**: Featured movie showcase with backdrop and call-to-action buttons
@@ -27,13 +55,14 @@ A Netflix-inspired movie recommendation web application built with Next.js 15, f
 - **Image Gallery**: Clickable modal gallery with high-quality posters and backdrops
 - **Trailers**: Direct links to movie trailers
 - **Ratings**: User ratings with yellow star indicators
-- **Related Movies**: Smart recommendations based on current movie
+- **Related Movies**: Smart recommendations + collection-aware “Similar Movies”
+- **Where to Watch**: Streaming/rent/buy providers with platform links
 
 ### 📱 Mobile Optimized
-- **Touch-Friendly**: Large touch targets for mobile navigation
+- **Touch-Friendly**: Larger tap targets & safe-area awareness
 - **Responsive Grid**: Adaptive movie grid layout
-- **Mobile Hero**: Optimized hero section height for mobile devices
-- **Horizontal Scroll**: Smooth category navigation on mobile
+- **Mobile Hero**: Optimized hero section height & lighter animations
+- **Horizontal Scroll**: Smooth rows with hidden scrollbars
 
 ## 🚀 Tech Stack
 
@@ -42,7 +71,7 @@ A Netflix-inspired movie recommendation web application built with Next.js 15, f
 - **Styling**: Tailwind CSS
 - **Animations**: Framer Motion
 - **Icons**: Lucide React
-- **API**: TMDb (The Movie Database)
+- **API**: TMDb (The Movie Database) + BK9 API (chat)
 - **Deployment**: Vercel
 
 ## 📦 Installation
@@ -81,6 +110,10 @@ This app uses the TMDb API. To get your API key:
 3. Request an API key for "Developer" use
 4. Add the API key to your `.env.local` file
 
+### Chat (BK9 API)
+- The chat calls a public endpoint: `https://api.bk9.dev/ai/BK9` (no key required)
+- Responses support basic formatting: `**bold**` and line breaks. Bold titles are clickable.
+
 ## 🚀 Deployment
 
 ### Vercel Deployment
@@ -110,38 +143,40 @@ This app uses the TMDb API. To get your API key:
 ```
 movrex/
 ├── public/
-│   └── movrex.svg          # App logo
+│   └── movrex.svg
 ├── src/
 │   ├── app/
-│   │   ├── api/            # API routes
-│   │   ├── movie/[id]/     # Movie detail pages
-│   │   ├── globals.css     # Global styles
-│   │   ├── layout.tsx      # Root layout
-│   │   └── page.tsx        # Homepage
+│   │   ├── api/
+│   │   ├── movie/[id]/
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   ├── head.tsx            # Preconnect/dns-prefetch & meta helpers
+│   │   └── page.tsx
 │   ├── components/
-│   │   └── MovieGallery.tsx # Image gallery component
+│   │   ├── MovieMasterChat.tsx   # Floating chat widget (BK9 API)
+│   │   ├── RecentViewBeacon.tsx  # Records recent views in localStorage (15-day expiry)
+│   │   └── MovieGallery.tsx
 │   └── hooks/
-│       ├── useConnectionQuality.ts # Network quality detection
-│       └── useScrollDirection.ts   # Scroll direction detection
-├── .env.local              # Environment variables
-└── package.json            # Dependencies
+│       ├── useConnectionQuality.ts
+│       └── useScrollDirection.ts
+└── package.json
 ```
 
 ## 🎯 Key Features Explained
 
-### Hide-on-Scroll Navbar
-The navbar automatically hides when scrolling down and reappears when scrolling up, providing more screen space for content while maintaining easy navigation access.
+### Actor Search Suggestion
+- If a search matches an actor, a popup asks to show their movies. Confirm with Enter; Clear exits actor mode.
 
-### Adaptive Image Loading
-The app detects network connection quality and loads appropriate image sizes:
-- **High-speed**: Full quality images
-- **Medium-speed**: Balanced quality
-- **Low-speed**: Optimized for faster loading
+### Continue Browsing & Trends
+- Local recent views & searches with 15‑day expiry; lightweight horizontal rows for quick access.
 
-### Interactive Movie Gallery
-- Click any image to open a modal gallery
-- Navigate with arrow keys or on-screen buttons
-- High-quality image display with smooth transitions
+### Where to Watch
+- Provider chips for Stream/Rent/Buy with logos and links.
+
+### Chat Tips
+- Bold results are clickable; try prompts like:
+  - "Movies like Inception"
+  - "Best heist films from the 2010s"
 
 ## 🔍 Available Scripts
 
@@ -149,6 +184,11 @@ The app detects network connection quality and loads appropriate image sizes:
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
+
+## 📈 Performance & SEO Notes
+- Preconnects for image and chat APIs
+- Reduced blur on mobile; higher header scroll threshold; content-visibility on rows
+- Rich OG/Twitter meta + JSON‑LD schema
 
 ## 🤝 Contributing
 

@@ -1,7 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Footer from "@/components/Footer";
+import MovieMasterChat from "../components/MovieMasterChat";
+import Footer from "../components/Footer";
+// (duplicate import removed)
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0b0f" },
+    { media: "(prefers-color-scheme: light)", color: "#0b0b0f" },
+  ],
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +28,22 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Movrex",
-  description: "Minimal modern movie discovery",
+  description: "Discover trending, popular, and top‑rated movies — fast and beautifully with Movrex.",
+  keywords: ["movies", "movie search", "trending movies", "top rated", "popular", "TMDB", "Movrex"],
+  openGraph: {
+    title: "Movrex — Discover Movies",
+    description: "Search and discover movies with a fast, modern interface.",
+    type: "website",
+    url: "https://movrex.example.com",
+    siteName: "Movrex",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Movrex — Discover Movies",
+    description: "Search and discover movies with a fast, modern interface.",
+  },
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
 };
 
 export default function RootLayout({
@@ -23,17 +51,30 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Movrex",
+    url: "https://movrex.example.com",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: "https://movrex.example.com/?q={search_term_string}",
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[--color-bg] text-white dark:bg-[--color-bg] dark:text-white font-['Poppins']`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[--color-bg] text-white`}
       >
-        <div className="min-h-screen flex flex-col dark:bg-[--color-bg]">
-          <main className="flex-1">
-            {children}
-          </main>
-          <Footer />
-        </div>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+        {children}
+        <Footer />
+        <MovieMasterChat />
       </body>
     </html>
   );

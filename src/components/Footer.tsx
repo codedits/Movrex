@@ -1,11 +1,12 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { Github, Twitter, Linkedin, Mail, Heart } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
-export default function Footer() {
+export default memo(function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
@@ -163,6 +164,8 @@ export default function Footer() {
           </div>
         </div>
       </div>
+      {/* Sentinel for IntersectionObserver (chat helper popup) */}
+      <div id="footer-sentinel" className="h-[1px] w-full" />
     </motion.footer>
   );
-}
+});
