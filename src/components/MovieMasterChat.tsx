@@ -87,8 +87,19 @@ export default function MovieMasterChat() {
 
   const hasUserMessages = useMemo(() => messages.some((m) => m.role === "user"), [messages]);
 
-  const sendToBK9 = useCallback(async (userText: string): Promise<string> => {
-    const url = `${BK9_ENDPOINT}?BK9=${encodeURIComponent(SYSTEM_PROMPT)}&q=${encodeURIComponent(userText)}&model=gpt4_o_mini`;
+  // Build a compact transcript from recent messages to provide conversational context
+  const buildTranscript = useCallback((history: ChatMessage[], nextUser: string): string => {
+    const recent = history.slice(-8);
+    const lines = recent.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+    lines.push(`User: ${nextUser}`);
+    return lines.join("\n");
+  }, []);
+
+  const sendToBK9 = useCallback(async (userText: string, contextTranscript: string): Promise<string> => {
+    const combined = contextTranscript && contextTranscript.trim().length > 0
+      ? `[Conversation]\n${contextTranscript}\n\nAssistant:`
+      : userText;
+    const url = `${BK9_ENDPOINT}?BK9=${encodeURIComponent(SYSTEM_PROMPT)}&q=${encodeURIComponent(combined)}&model=gpt4_o_mini`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`BK9 error: ${res.status}`);
     const data = await res.json();
@@ -99,10 +110,12 @@ export default function MovieMasterChat() {
     const text = input.trim();
     if (!text || sending) return;
     setSending(true);
+    // Prepare context with current history plus this user message
+    const transcript = buildTranscript(messages, text);
     setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
     try {
-      const reply = await sendToBK9(text);
+      const reply = await sendToBK9(text, transcript);
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch {
       setMessages((m) => [
@@ -112,7 +125,7 @@ export default function MovieMasterChat() {
     } finally {
       setSending(false);
     }
-  }, [input, sending, sendToBK9]);
+  }, [input, sending, messages, buildTranscript, sendToBK9]);
 
   const handleQuick = useCallback((text: string) => {
     setInput(text);

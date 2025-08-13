@@ -5,12 +5,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import dynamic from "next/dynamic";
-import { Search, Play, Info, ArrowRight } from "lucide-react";
+import { Search, Info, ArrowRight } from "lucide-react";
 import useScrollDirection from "@/hooks/useScrollDirection";
 import LoadingScreen from "@/components/LoadingScreen";
-// Defer rarely-needed components
-const MovieMasterChatLazy = dynamic(() => import("@/components/MovieMasterChat"), { ssr: false });
+//
 
 type Movie = {
   id: number;
@@ -22,6 +20,8 @@ type Movie = {
   vote_average: number;
   release_date?: string;
   first_air_date?: string;
+  popularity?: number;
+  vote_count?: number;
 };
 
 const TMDB = {
@@ -36,8 +36,25 @@ const isDev = process.env.NODE_ENV === 'development';
 // Simple in-memory caches (reset on reload)
 type TMDBSearchResponse = { results?: Movie[]; total_results?: number; total_pages?: number } | null;
 const searchCache = new Map<string, TMDBSearchResponse>(); // key: `${query}::${page}` -> full data
-const personCache = new Map<string, { id: number; name: string }>(); // key: query -> person
+const personCache = new Map<string, Array<{ id: number; name: string }>>(); // key: query -> people list
 const creditsCache = new Map<number, Movie[]>(); // key: personId -> movies
+
+// Helper: pick best hero movies (top 3 by rating, then popularity)
+function getBestHeroMovies(list: Movie[]): Movie[] {
+  const candidates = Array.isArray(list) ? list.slice() : [];
+  candidates.sort((a, b) => {
+    const ra = typeof a.vote_average === 'number' ? a.vote_average : 0;
+    const rb = typeof b.vote_average === 'number' ? b.vote_average : 0;
+    if (rb !== ra) return rb - ra;
+    const pa = typeof a.popularity === 'number' ? a.popularity : 0;
+    const pb = typeof b.popularity === 'number' ? b.popularity : 0;
+    return pb - pa;
+  });
+  // Prefer items with a visual backdrop/poster
+  const withImages = candidates.filter(m => !!(m.backdrop_path || m.poster_path));
+  const picked = (withImages.length >= 3 ? withImages : candidates).slice(0, 3);
+  return picked;
+}
 
 // Skeleton loader component
 const MovieCardSkeleton = () => (
@@ -71,7 +88,7 @@ function HomeContent() {
   // Search state for smooth UX
   const [showNoResults, setShowNoResults] = useState(false);
   // Actor search states
-  const [personSuggestion, setPersonSuggestion] = useState<{ id: number; name: string } | null>(null);
+  const [personSuggestions, setPersonSuggestions] = useState<Array<{ id: number; name: string }>>([]);
   const [isActorMode, setIsActorMode] = useState(false);
   // const [selectedActorId, setSelectedActorId] = useState<number | null>(null);
   const [selectedActorName, setSelectedActorName] = useState<string | null>(null);
@@ -136,10 +153,12 @@ function HomeContent() {
       if (pending) {
         setQuery(pending);
         setCurrentPage(1);
+        // Reflect into URL so back button works
+        router.replace(`/?q=${encodeURIComponent(pending)}`);
         localStorage.removeItem('mm_pending_query');
       }
     } catch {}
-  }, []);
+  }, [router]);
 
   // Sync `?q=` from URL into local query state (supports chat deep-links)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,9 +171,11 @@ function HomeContent() {
       setIsActorMode(false);
       setSelectedActorName(null);
       setActorAllMovies([]);
-      setPersonSuggestion(null);
+      setPersonSuggestions([]);
     }
   }, [searchParams]);
+
+  // Avoid a loop: only URL-update during direct input (handleSearchChange above)
 
   // Optimized category fetch (preload early for hero)
   useEffect(() => {
@@ -287,8 +308,8 @@ function HomeContent() {
       return; // Do not fetch person suggestions while in actor mode
     }
 
-    // Reset suggestion when query changes (outside actor mode)
-    setPersonSuggestion(null);
+    // Reset suggestions when query changes (outside actor mode)
+    setPersonSuggestions([]);
     if (!query || !query.trim()) return;
     const controller = new AbortController();
     const timeoutId = setTimeout(async () => {
@@ -296,19 +317,26 @@ function HomeContent() {
         const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
         if (personCache.has(query)) {
           const fromCache = personCache.get(query)!;
-          setPersonSuggestion(fromCache);
+          setPersonSuggestions(fromCache);
           return;
         }
         const res = await fetch(endpoint, { signal: controller.signal });
         if (!res.ok) throw new Error('Failed to fetch person suggestion');
         const data = await res.json();
-        const first = data?.results?.[0];
-        if (first && first.name) {
-          const found = { id: first.id, name: first.name };
-          personCache.set(query, found);
-          setPersonSuggestion(found);
+        // Build a safe, typed list of people without using 'any'
+        type PersonLite = { id: number; name: string };
+        const raw: unknown[] = Array.isArray(data?.results) ? (data.results as unknown[]) : [];
+        const isPersonLite = (x: unknown): x is PersonLite => {
+          if (!x || typeof x !== 'object') return false;
+          const obj = x as Record<string, unknown>;
+          return typeof obj.id === 'number' && typeof obj.name === 'string';
+        };
+        const mapped: Array<PersonLite> = raw.filter(isPersonLite).slice(0, 5);
+        if (mapped.length > 0) {
+          personCache.set(query, mapped);
+          setPersonSuggestions(mapped);
         } else {
-          setPersonSuggestion(null);
+          setPersonSuggestions([]);
         }
       } catch (err) {
         if (!(err instanceof Error && err.name === 'AbortError')) {
@@ -320,19 +348,19 @@ function HomeContent() {
   }, [query, isActorMode, actorQueryAtActivation]);
 
   // Confirm actor selection -> fetch all movies, paginate client-side
-  const handleConfirmActor = useCallback(async () => {
-    if (!personSuggestion) return;
-    setPersonSuggestion(null); // prevent suggestion from reappearing
+  const handleConfirmActor = useCallback(async (selected?: { id: number; name: string }) => {
+    if (!selected) return;
+    setPersonSuggestions([]); // prevent suggestions from reappearing
     setLoading(true);
     try {
-      let allMovies: Movie[] = creditsCache.get(personSuggestion.id) ?? [];
+      let allMovies: Movie[] = creditsCache.get(selected.id) ?? [];
       if (allMovies.length === 0) {
-        const creditsEndpoint = `${TMDB.base}/person/${personSuggestion.id}/movie_credits?api_key=${TMDB.key}`;
+        const creditsEndpoint = `${TMDB.base}/person/${selected.id}/movie_credits?api_key=${TMDB.key}`;
         const res = await fetch(creditsEndpoint);
         if (!res.ok) throw new Error('Failed to fetch person credits');
         const creditsData = await res.json();
         allMovies = Array.isArray(creditsData?.cast) ? creditsData.cast : [];
-        creditsCache.set(personSuggestion.id, allMovies);
+        creditsCache.set(selected.id, allMovies);
       }
       const uniqueById = new Map<number, Movie>();
       for (const m of allMovies) {
@@ -342,7 +370,7 @@ function HomeContent() {
       }
       const uniqueMovies = Array.from(uniqueById.values());
       // selected actor id no longer stored; name used for display
-      setSelectedActorName(personSuggestion.name);
+      setSelectedActorName(selected.name);
       setIsActorMode(true);
       setActorQueryAtActivation(query);
       setActorAllMovies(uniqueMovies);
@@ -356,10 +384,10 @@ function HomeContent() {
     } finally {
       setLoading(false);
     }
-  }, [personSuggestion, moviesPerPage, query]);
+  }, [moviesPerPage, query]);
 
   const handleDismissSuggestion = useCallback(() => {
-    setPersonSuggestion(null);
+    setPersonSuggestions([]);
   }, []);
 
   const clearActorFilter = useCallback(() => {
@@ -389,17 +417,23 @@ function HomeContent() {
     return Array.isArray(trending) ? trending.slice(0, moviesPerPage) : [];
   }, [query, results, trending]);
   
-  const featured = useMemo(() => {
-    if (query || !trending || trending.length === 0) return null;
-    return trending[0];
-  }, [query, trending]);
+  // Featured memo not used separately (hero uses heroMovies instead)
 
-  // Hero carousel state
+  // Hero carousel (top 3 best movies)
   const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
   const heroMovies = useMemo(() => {
     if (query || !trending || trending.length === 0) return [];
-    return trending.slice(0, 5); // Show first 5 trending movies in carousel
+    return getBestHeroMovies(trending);
   }, [query, trending]);
+
+  // Advance hero every 5 seconds with smooth transition
+  useEffect(() => {
+    if (heroMovies.length <= 1) return;
+    const t = setInterval(() => {
+      setCurrentHeroIndex((i) => (i + 1) % heroMovies.length);
+    }, 5000);
+    return () => clearInterval(t);
+  }, [heroMovies.length]);
 
   // Recent browsing (views + searches)
   const [recentViews, setRecentViews] = useState<{ id: number; title: string; poster_path: string | null }[]>([]);
@@ -438,9 +472,12 @@ function HomeContent() {
   }, [currentPage, totalPages]);
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setQuery(e.target.value);
+    const next = e.target.value;
+    setQuery(next);
     setCurrentPage(1); // Reset to first page when starting new search
-  }, []);
+    const url = next.trim() ? `/?q=${encodeURIComponent(next.trim())}` : "/";
+    router.replace(url);
+  }, [router]);
 
   // Optimized event handlers
   const handleLogoClick = useCallback((e: React.MouseEvent) => {
@@ -477,33 +514,33 @@ function HomeContent() {
   return (
     <>
       <LoadingScreen isLoading={showLoadingScreen} />
-              <motion.div 
-          className="min-h-screen"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: isInitialLoad ? 0 : 1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
+      <motion.div 
+        className="min-h-screen"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: isInitialLoad ? 0 : 1 }}
+        transition={{ duration: 0.8, delay: 0.2 }}
           style={{ willChange: 'auto' }}
-        >
+      >
         <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
-          <div className="mx-auto max-w-7xl px-0 py-3">
+        <div className="mx-auto max-w-7xl px-0 py-3">
                           <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2.5 sm:py-3">
-              <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight shrink-0">
-                <Image src="/movrex.svg" alt="Movrex" width={24} height={24} priority />
-                <span><span className="text-[--color-primary]">Mov</span>rex</span>
-              </Link>
-              <div className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
+            <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight shrink-0">
+              <Image src="/movrex.svg" alt="Movrex" width={24} height={24} priority />
+              <span><span className="text-[--color-primary]">Mov</span>rex</span>
+            </Link>
+            <div className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
-                <input
+              <input
                   placeholder="Search movies or actors..."
-                  value={query}
-                  onChange={handleSearchChange}
+                value={query}
+                onChange={handleSearchChange}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && personSuggestion && !isActorMode) {
+                    if (e.key === 'Enter' && personSuggestions.length > 0 && !isActorMode) {
                       e.preventDefault();
-                      handleConfirmActor();
-                    } else if (e.key === 'Escape' && personSuggestion) {
+                      handleConfirmActor(personSuggestions[0]);
+                    } else if (e.key === 'Escape' && personSuggestions.length > 0) {
                       e.preventDefault();
-                      setPersonSuggestion(null);
+                      setPersonSuggestions([]);
                     }
                   }}
                   className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2.5 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 transition text-sm sm:text-base placeholder:text-white/50"
@@ -527,172 +564,176 @@ function HomeContent() {
                     Clear
                   </button>
                 )}
-                {personSuggestion && !isActorMode && query.trim() && (
+                {personSuggestions.length > 0 && !isActorMode && query.trim() && (
                   <div className="absolute left-0 right-0 top-full mt-2 z-[10000]">
-                    <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-3 flex items-center justify-between gap-3 shadow-2xl">
-                      <div className="text-sm text-white/90">
-                        Show movies from &quot;<span className="text-white font-semibold">{personSuggestion.name}</span>&quot;?
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={handleConfirmActor} 
-                          className="px-3 py-1.5 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-colors shadow-lg"
-                        >
-                          Show
-                        </button>
+                    <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-2 shadow-2xl">
+                      <ul className="max-h-64 overflow-y-auto divide-y divide-white/10">
+                        {personSuggestions.map((p) => (
+                          <li key={p.id}>
+                            <button
+                              onClick={() => handleConfirmActor(p)}
+                              className="w-full text-left px-3 py-2 hover:bg-white/10 focus:bg-white/10 rounded-lg flex items-center justify-between gap-3"
+                            >
+                              <span className="text-sm text-white/90">{p.name}</span>
+                              <span className="text-xs text-white/50">Show movies</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-2 flex justify-end">
                         <button 
                           onClick={handleDismissSuggestion} 
                           className="px-3 py-1.5 rounded-lg border border-white/30 text-white/90 text-sm hover:bg-white/20 transition-colors"
                         >
                           Dismiss
-                      </button>
+                        </button>
                       </div>
                     </div>
                   </div>
                 )}
-              </div>
-              <nav className="hidden md:flex items-center gap-1 ml-2 sm:ml-4">
-                {([
-                  { key: "trending", label: "Trending" },
-                  { key: "popular", label: "Popular" },
-                  { key: "top_rated", label: "Top Rated" },
-                  { key: "upcoming", label: "Upcoming" },
-                ] as const).map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => handleCategoryChange(tab.key)}
-                    className={`rounded-full px-3 py-1.5 text-sm border transition ${
-                      category === tab.key
-                        ? "bg-white text-black border-white"
-                        : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
             </div>
-            <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
-              <div className="flex items-center gap-2 w-max pb-1">
-                {([
-                  { key: "trending", label: "Trending" },
-                  { key: "popular", label: "Popular" },
-                  { key: "top_rated", label: "Top Rated" },
-                  { key: "upcoming", label: "Upcoming" },
-                ] as const).map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => handleCategoryChange(tab.key)}
-                    className={`rounded-full px-4 py-2 text-sm border transition-all duration-200 ${
-                      category === tab.key
-                        ? "bg-white text-black border-white shadow-lg"
-                        : "bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:border-white/30"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+            <nav className="hidden md:flex items-center gap-1 ml-2 sm:ml-4">
+              {([
+                { key: "trending", label: "Trending" },
+                { key: "popular", label: "Popular" },
+                { key: "top_rated", label: "Top Rated" },
+                { key: "upcoming", label: "Upcoming" },
+              ] as const).map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => handleCategoryChange(tab.key)}
+                  className={`rounded-full px-3 py-1.5 text-sm border transition ${
+                    category === tab.key
+                      ? "bg-white text-black border-white"
+                      : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </nav>
           </div>
-        </header>
+          <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-2 w-max pb-1">
+              {([
+                { key: "trending", label: "Trending" },
+                { key: "popular", label: "Popular" },
+                { key: "top_rated", label: "Top Rated" },
+                { key: "upcoming", label: "Upcoming" },
+              ] as const).map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => handleCategoryChange(tab.key)}
+                    className={`rounded-full px-4 py-2 text-sm border transition-all duration-200 ${
+                    category === tab.key
+                        ? "bg-white text-black border-white shadow-lg"
+                        : "bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:border-white/30"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </nav>
+        </div>
+      </header>
 
         <main className="mx-auto max-w-7xl px-4 py-8 cv-auto">
           {!query && heroMovies.length > 0 && (
-            <motion.section
+          <motion.section
               initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
+            animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: "easeOut" }}
-              className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 group"
-            >
+            className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 group"
+          >
               <div className="relative h-[50vh] sm:h-[62vh] md:h-[68vh] lg:aspect-[16/9] lg:h-auto">
-                {/* Hero Carousel Images */}
+                {/* Hero Carousel Images (best 3) */}
                 {heroMovies.map((movie, index) => (
-                  <motion.div
+                <motion.div
                     key={movie.id}
-                    className="absolute inset-0"
+                  className="absolute inset-0"
                     initial={{ opacity: 0, scale: 1.05 }}
                     animate={{ 
                       opacity: index === currentHeroIndex ? 1 : 0,
                       scale: index === currentHeroIndex ? 1 : 1.05
                     }}
                     transition={{ 
-                      duration: 0.6, 
+                      duration: 0.8, 
                       ease: "easeInOut"
                     }}
                   >
                     {movie.backdrop_path || movie.poster_path ? (
-                      <Image
+          <Image
                         src={TMDB.img(movie.backdrop_path || movie.poster_path || "", "original")}
                         alt={movie.title || movie.name || "Featured"}
-                        fill
-                        sizes="100vw"
-                        className="object-cover"
+                    fill
+                    sizes="100vw"
+                    className="object-cover"
                         priority={index === 0}
                         loading={index === 0 ? "eager" : "lazy"}
-                        placeholder="blur"
+                    placeholder="blur"
                         blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
-                      />
-                    ) : (
-                      <div className="absolute inset-0 grid place-content-center text-white/40">
-                        No preview
-                      </div>
-                    )}
+                  />
+              ) : (
+                <div className="absolute inset-0 grid place-content-center text-white/40">
+                  No preview
+                </div>
+              )}
                   </motion.div>
                 ))}
-                <motion.div
-                  className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+              <motion.div 
+                className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                   transition={{ duration: 0.6, delay: 0.2 }}
-                />
-              </div>
+              />
+            </div>
 
-              <div className="absolute inset-0 flex items-end">
-                <motion.div
+            <div className="absolute inset-0 flex items-end">
+              <motion.div 
                   key={heroMovies[currentHeroIndex]?.id}
                   className="p-4 sm:p-6 md:p-10 max-w-full sm:max-w-2xl"
                   initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
-                >
-                  <motion.h1
+                animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
+              >
+                <motion.h1 
                     className="text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight leading-tight"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.45, ease: "easeOut" }}
-                  >
+                >
                     {heroMovies[currentHeroIndex]?.title || heroMovies[currentHeroIndex]?.name}
-                  </motion.h1>
-                  <motion.p
+                </motion.h1>
+                <motion.p 
                     className="mt-2 text-white/90 line-clamp-2 sm:line-clamp-3 text-sm sm:text-base"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.55, ease: "easeOut" }}
-                  >
+                >
                     {heroMovies[currentHeroIndex]?.overview}
-                  </motion.p>
-                  <motion.div
+                </motion.p>
+                <motion.div 
                     className="mt-3 sm:mt-4 flex items-center gap-2 sm:gap-3"
                     initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
+                  animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, delay: 0.6, ease: "easeOut" }}
+                >
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <Link
+                    <Link
                         href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
                         className="inline-flex items-center gap-2 rounded-full bg-white text-black px-3 py-1.5 text-sm font-medium hover:bg-white/90 transition-colors shadow-lg"
-                      >
-                        <Info className="size-4" /> View Details
-                      </Link>
-                    </motion.div>
-                    <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
                     >
+                        <Info className="size-4" /> View Details
+                    </Link>
+                  </motion.div>
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
                       <button
                         onClick={() => setCurrentHeroIndex((prev) => (prev + 1) % heroMovies.length)}
                         className="inline-flex items-center gap-2 rounded-full bg-white/20 border border-white/30 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/30 transition-colors"
@@ -700,21 +741,21 @@ function HomeContent() {
                         <ArrowRight className="size-4" /> Next
                       </button>
                     </motion.div>
-                  </motion.div>
                 </motion.div>
-              </div>
-            </motion.section>
-          )}
+              </motion.div>
+            </div>
+          </motion.section>
+        )}
 
-          <motion.div
+        <motion.div
             initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.15 }}
-            className="mb-6"
-          >
-            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
-              {query ? "Search results" : `${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} this week`}
-            </h2>
+          className="mb-6"
+        >
+          <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
+            {query ? "Search results" : `${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} this week`}
+          </h2>
             {isActorMode && selectedActorName && (
               <div className="mt-1 text-white/60 text-sm flex items-center gap-3">
                 <span>
@@ -724,59 +765,63 @@ function HomeContent() {
               </div>
             )}
             {loading && <div className="mt-2 text-white/60" aria-live="polite">Loading...</div>}
-          </motion.div>
+        </motion.div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
-            {loading ? (
-              // Show skeleton loaders while loading
-              Array.from({ length: 18 }).map((_, i) => (
-                <MovieCardSkeleton key={i} />
-              ))
-            ) : (
-              rows.map((movie) => (
-                <motion.article
-                  key={movie.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3 }}
-                  className="group"
-                >
-                  <Link href={`/movie/${movie.id}`} className="block" prefetch={true}>
-                    <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
-                      {movie.poster_path ? (
-                        <Image
-                          src={TMDB.img(movie.poster_path, "w500")}
-                          alt={movie.title || movie.name || "Movie"}
-                          fill
+          {loading ? (
+            // Show skeleton loaders while loading
+            Array.from({ length: 18 }).map((_, i) => (
+              <MovieCardSkeleton key={i} />
+            ))
+          ) : (
+            rows.map((movie) => (
+              <motion.article
+                key={movie.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3 }}
+                className="group"
+              >
+                  <Link
+                    href={query.trim() ? { pathname: `/movie/${movie.id}`, query: { q: query.trim() } } : `/movie/${movie.id}`}
+                    className="block"
+                    prefetch={true}
+                  >
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                    {movie.poster_path ? (
+          <Image
+                        src={TMDB.img(movie.poster_path, "w500")}
+                        alt={movie.title || movie.name || "Movie"}
+                        fill
                           sizes="(max-width: 640px) 33vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
-                          className="object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                          placeholder="blur"
-                          blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
-                        />
-                      ) : (
-                        <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">
-                          No image
-                        </div>
-                      )}
-                      <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
-                        <span className="text-yellow-400">★</span>
-                        {movie.vote_average.toFixed(1)}
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                        loading="lazy"
+                        placeholder="blur"
+                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+                      />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">
+                        No image
                       </div>
+                    )}
+                    <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+                      <span className="text-yellow-400">★</span>
+                      {movie.vote_average.toFixed(1)}
                     </div>
-                    <div className="mt-2">
-                      <h3 className="font-medium text-base line-clamp-2 group-hover:text-white/80 transition-colors">
-                        {movie.title || movie.name}
-                      </h3>
-                      <p className="text-white/60 text-xs mt-1">
-                        {movie.release_date?.split("-")[0] || movie.first_air_date?.split("-")[0] || "N/A"}
-                      </p>
-                    </div>
-                  </Link>
-                </motion.article>
-              ))
-            )}
-          </div>
+                  </div>
+                  <div className="mt-2">
+                    <h3 className="font-medium text-base line-clamp-2 group-hover:text-white/80 transition-colors">
+                      {movie.title || movie.name}
+                    </h3>
+                    <p className="text-white/60 text-xs mt-1">
+                      {movie.release_date?.split("-")[0] || movie.first_air_date?.split("-")[0] || "N/A"}
+                    </p>
+                  </div>
+                </Link>
+              </motion.article>
+            ))
+          )}
+    </div>
 
           {/* Pagination Controls - Only show for search results */}
           {query && totalPages > 1 && (
@@ -858,7 +903,7 @@ function HomeContent() {
               </div>
             </div>
           )}
-        </main>
+      </main>
         
         {/* Continue browsing */}
         {(recentViews.length > 0 || recentSearches.length > 0) && (

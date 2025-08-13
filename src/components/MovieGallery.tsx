@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import useConnectionQuality from "@/hooks/useConnectionQuality";
 
 export type GalleryImage = { src: string; alt: string };
 
@@ -17,23 +16,10 @@ export default function MovieGallery({ images, title = "Gallery" }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const tier = useConnectionQuality("high");
 
   const hasImages = images && images.length > 0;
 
-  // Memoize image quality based on connection
-  const imageQuality = useMemo(() => {
-    switch (tier) {
-      case "high":
-        return "original";
-      case "medium":
-        return "w1280";
-      case "low":
-        return "w780";
-      default:
-        return "w780";
-    }
-  }, [tier]);
+  // Removed unused quality computation to avoid dead code
 
   const open = useCallback((i: number) => {
     setIndex(i);

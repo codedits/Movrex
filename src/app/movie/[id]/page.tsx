@@ -73,6 +73,21 @@ async function fetchWatchProviders(movieId: string): Promise<{ region: string; d
   }
 }
 
+// Fetch collection parts if the movie belongs to a collection
+async function fetchCollectionParts(collectionId: number): Promise<Movie[]> {
+  try {
+    const url = `${TMDB.base}/collection/${collectionId}?api_key=${TMDB.key}&language=en-US`;
+    const res = await fetch(url, { next: { revalidate: 60 * 60 } });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const parts = Array.isArray(json?.parts) ? json.parts : [];
+    return parts as Movie[];
+  } catch (e) {
+    console.error('collection parts error', e);
+    return [];
+  }
+}
+
 // Loading component
 const MovieDetailSkeleton = () => (
   <div className="mx-auto max-w-6xl px-4 py-8 animate-pulse">
@@ -114,26 +129,20 @@ async function fetchMovie(id: string): Promise<Movie> {
   return res.json();
 }
 
-// Optimized parallel data fetching
-async function fetchMovieData(id: string) {
-  const [movie, watchProviders] = await Promise.all([
-    fetchMovie(id),
-    fetchWatchProviders(id)
-  ]);
-  
-  return { movie, watchProviders: watchProviders };
-}
+//
 
-export default async function MovieDetail({ params }: { params: Promise<{ id: string }> }) {
+export default async function MovieDetail({ params, searchParams }: { params: Promise<{ id: string }>, searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params;
+  const sp = (await (searchParams || Promise.resolve({}))) as Record<string, string | string[] | undefined>;
+  const q = typeof sp.q === 'string' ? sp.q : undefined;
   
   let movie: Movie;
   try {
     movie = await fetchMovie(id);
-  } catch (error) {
+  } catch {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <Link href="/" className="text-white/70 hover:text-white transition-colors">← Back</Link>
+        <Link href={q ? `/?q=${encodeURIComponent(q)}` : "/"} className="text-white/70 hover:text-white transition-colors">← Back</Link>
         <div className="mt-6 text-center">
           <p className="text-white/70 text-lg">Failed to load movie.</p>
           <p className="text-white/50 text-sm mt-2">Please try again later.</p>
@@ -149,18 +158,22 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
   const recs = movie.recommendations?.results?.slice(0, 12) || [];
   const posters = movie.images?.posters?.slice(0, 12) || [];
   const backdrops = movie.images?.backdrops?.slice(0, 12) || [];
-  // Fetch watch providers in parallel with movie data
-  const watch = await fetchWatchProviders(id);
+  // Fetch additional data in parallel now that we have the movie (for region and collection)
+  const [watch, collectionParts] = await Promise.all([
+    fetchWatchProviders(id),
+    movie.belongs_to_collection?.id ? fetchCollectionParts(movie.belongs_to_collection.id) : Promise.resolve([] as Movie[]),
+  ]);
 
-  // Use built-in TMDB recommendations for faster loading
-  const similarMovies = recs.slice(0, 12);
+  // Build collection movies (exclude current movie). If none, section will not render.
+  const collectionMovies = (collectionParts || [])
+    .filter((m) => m && m.id !== movie.id);
 
   return (
     <Suspense fallback={<MovieDetailSkeleton />}>
       <div className="mx-auto max-w-6xl px-4 py-8">
         {/* Record recent view in localStorage */}
         <RecentViewBeacon id={movie.id} title={movie.title} posterPath={movie.poster_path} />
-        <Link href="/" className="text-white/70 hover:text-white transition-colors">← Back</Link>
+        <Link href={q ? `/?q=${encodeURIComponent(q)}` : "/"} className="text-white/70 hover:text-white transition-colors">← Back</Link>
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
           {movie.poster_path && (
@@ -407,15 +420,14 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
           </FadeIn>
         )}
 
-        {/* Similar Movies (Collection parts + keyword-based) */}
-        {similarMovies.length > 0 && (
+        {/* From the same collection */}
+        {collectionMovies.length > 0 && (
           <section className="mt-12">
-            <h2 className="text-2xl font-semibold mb-6">Similar Movies</h2>
-            <p className="text-white/60 text-sm mb-4">Movies with similar themes and keywords to this movie</p>
+            <h2 className="text-2xl font-semibold mb-6">From the same collection</h2>
             {/* Mobile: Horizontal scroll, Desktop: Grid */}
             <div className="block sm:hidden">
               <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
-                {similarMovies.map((rec: Movie) => (
+                {collectionMovies.map((rec: Movie) => (
                   <Link key={rec.id} href={`/movie/${rec.id}`} className="group w-[140px] shrink-0">
                     <ScaleIn>
                     <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
@@ -437,7 +449,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
                       )}
                       <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                         <span className="text-yellow-400">★</span>
-                        {rec.vote_average.toFixed(1)}
+                        {(rec.vote_average ?? 0).toFixed(1)}
                       </div>
                     </div>
                     <div className="mt-2">
@@ -455,7 +467,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
             </div>
             {/* Desktop Grid */}
             <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {similarMovies.map((rec: Movie) => (
+              {collectionMovies.map((rec: Movie) => (
                 <Link key={rec.id} href={`/movie/${rec.id}`} className="group">
                   <ScaleIn>
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
@@ -477,7 +489,7 @@ export default async function MovieDetail({ params }: { params: Promise<{ id: st
                     )}
                     <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                       <span className="text-yellow-400">★</span>
-                      {rec.vote_average.toFixed(1)}
+                      {(rec.vote_average ?? 0).toFixed(1)}
                     </div>
                   </div>
                   <div className="mt-2">
