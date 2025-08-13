@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import { Search, Play, Info } from "lucide-react";
@@ -51,6 +51,7 @@ const MovieCardSkeleton = () => (
 function HomeContent() {
   const scrollDir = useScrollDirection(12);
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [trending, setTrending] = useState<Movie[]>([]);
   const [results, setResults] = useState<Movie[]>([]);
@@ -116,15 +117,16 @@ function HomeContent() {
     }
   }, []);
 
-  // Hide loading screen after initial load
+  // Hide loading screen after initial content preloads
   useEffect(() => {
-    // Wait for content to be ready before hiding loading screen
-    const timer = setTimeout(() => {
+    let didCancel = false;
+    const t = setTimeout(() => {
+      if (didCancel) return;
       setShowLoadingScreen(false);
       setIsInitialLoad(false);
-    }, 900); // slightly faster initial splash
+    }, 700);
 
-    return () => clearTimeout(timer);
+    return () => { didCancel = true; clearTimeout(t); };
   }, []);
 
   // If chat stored a pending query, hydrate it once on mount
@@ -154,7 +156,7 @@ function HomeContent() {
     }
   }, [searchParams]);
 
-  // Optimized category fetch
+  // Optimized category fetch (preload early for hero)
   useEffect(() => {
     if (query.trim()) return;
     
@@ -439,15 +441,31 @@ function HomeContent() {
     setCategory("trending");
     setQuery("");
     setResults([]);
+    setTotalResults(0);
+    setTotalPages(1);
+    setShowNoResults(false);
+    setIsActorMode(false);
+    setSelectedActorName(null);
+    setActorAllMovies([]);
+    setActorQueryAtActivation(null);
+    router.replace("/");
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  }, [router]);
 
   const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming") => {
     setCategory(next);
     setQuery("");
     setResults([]);
+    setTotalResults(0);
+    setTotalPages(1);
+    setShowNoResults(false);
+    setIsActorMode(false);
+    setSelectedActorName(null);
+    setActorAllMovies([]);
+    setActorQueryAtActivation(null);
+    router.replace("/");
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  }, [router]);
 
   return (
     <>
@@ -562,7 +580,7 @@ function HomeContent() {
         </header>
 
         <main className="mx-auto max-w-7xl px-4 py-8 cv-auto">
-          {!query && featured && !isInitialLoad && (
+          {!query && featured && (
             <motion.section
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
