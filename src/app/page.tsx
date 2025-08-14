@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
+import { useEffect, useMemo, useState, useCallback, Suspense, useDeferredValue, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Search, Info, ArrowRight } from "lucide-react";
@@ -33,27 +33,50 @@ const TMDB = {
 
 const isDev = process.env.NODE_ENV === 'development';
 
+type Genre = { id: number; name: string };
+type Filters = {
+  actorName: string;
+  genreIds: number[];
+  yearFrom: string;
+  yearTo: string;
+  ratingFrom: string;
+  ratingTo: string;
+  sortBy: string;
+  searchType?: "movie" | "actor";
+  releaseDateFrom?: string;
+  releaseDateTo?: string;
+};
+
 // Simple in-memory caches (reset on reload)
 type TMDBSearchResponse = { results?: Movie[]; total_results?: number; total_pages?: number } | null;
 const searchCache = new Map<string, TMDBSearchResponse>(); // key: `${query}::${page}` -> full data
 const personCache = new Map<string, Array<{ id: number; name: string }>>(); // key: query -> people list
 const creditsCache = new Map<number, Movie[]>(); // key: personId -> movies
 
-// Helper: pick best hero movies (top 3 by rating, then popularity)
+// Helper: pick best hero movies (single pass selection of top 3)
 function getBestHeroMovies(list: Movie[]): Movie[] {
-  const candidates = Array.isArray(list) ? list.slice() : [];
-  candidates.sort((a, b) => {
-    const ra = typeof a.vote_average === 'number' ? a.vote_average : 0;
-    const rb = typeof b.vote_average === 'number' ? b.vote_average : 0;
-    if (rb !== ra) return rb - ra;
-    const pa = typeof a.popularity === 'number' ? a.popularity : 0;
-    const pb = typeof b.popularity === 'number' ? b.popularity : 0;
-    return pb - pa;
-  });
-  // Prefer items with a visual backdrop/poster
-  const withImages = candidates.filter(m => !!(m.backdrop_path || m.poster_path));
-  const picked = (withImages.length >= 3 ? withImages : candidates).slice(0, 3);
-  return picked;
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const score = (m: Movie): number => {
+    const r = typeof m.vote_average === 'number' ? m.vote_average : 0;
+    const p = typeof m.popularity === 'number' ? m.popularity : 0;
+    // weight rating higher; tie-breaker by popularity
+    return r * 1000 + p; // preserves order without floats
+  };
+  const pick: Movie[] = [];
+  for (const m of list) {
+    if (!m) continue;
+    if (pick.length < 3) {
+      pick.push(m);
+      if (pick.length === 3) pick.sort((a, b) => score(b) - score(a));
+      continue;
+    }
+    if (score(m) > score(pick[2])) {
+      pick[2] = m;
+      pick.sort((a, b) => score(b) - score(a));
+    }
+  }
+  const withImages = pick.filter(m => !!(m.backdrop_path || m.poster_path));
+  return withImages.length >= 3 ? withImages.slice(0, 3) : pick.slice(0, 3);
 }
 
 // Skeleton loader component
@@ -94,6 +117,51 @@ function HomeContent() {
   const [selectedActorName, setSelectedActorName] = useState<string | null>(null);
   const [actorAllMovies, setActorAllMovies] = useState<Movie[]>([]);
   const [actorQueryAtActivation, setActorQueryAtActivation] = useState<string | null>(null);
+  const [areSuggestionsVisible, setAreSuggestionsVisible] = useState(false);
+  const [suppressSuggestions, setSuppressSuggestions] = useState(false);
+  const deferredQuery = useDeferredValue(query);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+
+  // Close suggestions on outside click or window blur
+  useEffect(() => {
+    if (!areSuggestionsVisible) return;
+    const handleDocClick = (e: MouseEvent) => {
+      const container = searchBoxRef.current;
+      if (container && !container.contains(e.target as Node)) {
+        setPersonSuggestions([]);
+        setAreSuggestionsVisible(false);
+        setSuppressSuggestions(true);
+      }
+    };
+    const handleWindowBlur = () => {
+      setPersonSuggestions([]);
+      setAreSuggestionsVisible(false);
+      setSuppressSuggestions(true);
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      document.removeEventListener('mousedown', handleDocClick);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [areSuggestionsVisible]);
+
+  // Filters state
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersActive, setFiltersActive] = useState(false);
+  const [filters, setFilters] = useState<Filters>({
+    actorName: "",
+    genreIds: [],
+    yearFrom: "",
+    yearTo: "",
+    ratingFrom: "",
+    ratingTo: "",
+    sortBy: "popularity.desc",
+    searchType: "movie",
+    releaseDateFrom: "",
+    releaseDateTo: "",
+  });
+  const [allGenres, setAllGenres] = useState<Genre[]>([]);
 
   // Memoized fetch function
   const fetchMovies = useCallback(async (
@@ -130,6 +198,64 @@ function HomeContent() {
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return null;
       console.error('Search error:', error);
+      return null;
+    }
+  }, []);
+
+  // Utility: client-side sorting for search results when filtersActive
+  const sortMoviesBy = useCallback((list: Movie[], sortBy: string): Movie[] => {
+    const items = Array.isArray(list) ? list.slice() : [];
+    const [key, dir] = (sortBy || 'popularity.desc').split('.') as [string, string];
+    const factor = dir === 'asc' ? 1 : -1;
+    // decorate-sort-undecorate to compute key once per item
+    const decorated = items.map((m, i) => {
+      let val = 0;
+      if (key === 'vote_average') val = typeof m.vote_average === 'number' ? m.vote_average : 0;
+      else if (key === 'popularity') val = typeof m.popularity === 'number' ? m.popularity : 0;
+      else if (key === 'primary_release_date') {
+        const d = m.release_date || m.first_air_date || '';
+        const t = d ? Date.parse(d) : 0;
+        val = isNaN(t) ? 0 : t;
+      }
+      return { m, i, val };
+    });
+    decorated.sort((a, b) => (a.val - b.val) * factor || a.i - b.i);
+    return decorated.map(d => d.m);
+  }, []);
+
+  // Discover with filters (server API wrapper)
+  const discoverMovies = useCallback(async (
+    f: Filters,
+    page: number,
+    signal: AbortSignal
+  ) => {
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      // Only sorting + actor/movie selection are supported now
+      if (f.sortBy) params.set("sort_by", f.sortBy);
+
+      // Resolve actor name -> person id (first match) when provided
+      if ((f.searchType === "actor" || f.actorName) && f.actorName && f.actorName.trim()) {
+        try {
+          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(f.actorName.trim())}&api_key=${TMDB.key}`;
+          const res = await fetch(url, { signal });
+          const data = await res.json();
+          const pid = Array.isArray(data?.results) && data.results.length > 0 ? data.results[0]?.id : undefined;
+          if (typeof pid === 'number') params.set("with_people", String(pid));
+        } catch (e) {
+          if (isDev) console.warn('actor resolve failed', e);
+        }
+      }
+
+      const endpoint = `/api/discover?${params.toString()}`;
+      const res = await fetch(endpoint, { signal });
+      if (!res.ok) throw new Error('Failed to fetch filtered movies');
+      const json = await res.json();
+      return json as { results?: Movie[]; total_results?: number; total_pages?: number };
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return null;
+      console.error('Discover error:', e);
       return null;
     }
   }, []);
@@ -199,6 +325,98 @@ function HomeContent() {
     return () => controller.abort();
   }, [category, query, fetchMovies]);
 
+  // Load genres when opening filters
+  useEffect(() => {
+    if (!filtersOpen || allGenres.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = `${TMDB.base}/genre/movie/list?api_key=${TMDB.key}`;
+        const res = await fetch(url, { cache: 'force-cache' });
+        const data = await res.json();
+        const list: Genre[] = Array.isArray(data?.genres) ? data.genres : [];
+        if (!cancelled) setAllGenres(list);
+      } catch (e) {
+        if (isDev) console.warn('genres load failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filtersOpen, allGenres.length]);
+
+  // Fetch when filters are active
+  useEffect(() => {
+    if (!filtersActive) return;
+    if (isDev) console.log('🔎 Filters effect triggered:', { filters, currentPage });
+    const controller = new AbortController();
+    setLoading(true);
+    setShowNoResults(false);
+    const doWork = async () => {
+      // If actor mode is selected in filters, resolve actor and show their movies
+      if ((filters.searchType ?? 'movie') === 'actor') {
+        try {
+          if (!query.trim() && !filters.actorName?.trim()) {
+            setResults([]);
+            setTotalResults(0);
+            setTotalPages(1);
+            setShowNoResults(true);
+            return;
+          }
+          const name = filters.actorName?.trim() || query.trim();
+          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(name)}&api_key=${TMDB.key}`;
+          const res = await fetch(url, { signal: controller.signal });
+          const data = await res.json();
+          const personId = Array.isArray(data?.results) && data.results.length > 0 ? data.results[0]?.id : undefined;
+          if (!personId) {
+            setResults([]);
+            setTotalResults(0);
+            setTotalPages(1);
+            setShowNoResults(true);
+            return;
+          }
+          const creditsEndpoint = `${TMDB.base}/person/${personId}/movie_credits?api_key=${TMDB.key}`;
+          const cres = await fetch(creditsEndpoint, { signal: controller.signal });
+          const cdata = await cres.json();
+          const movies: Movie[] = Array.isArray(cdata?.cast) ? cdata.cast : [];
+          const unique = Array.from(new Map(movies.map(m => [m.id, m])).values());
+          const sorted = filters.sortBy ? sortMoviesBy(unique, filters.sortBy) : unique;
+          setResults(sorted);
+          setTotalResults(sorted.length);
+          setTotalPages(Math.max(1, Math.ceil(sorted.length / moviesPerPage)));
+          setIsActorMode(true);
+          setSelectedActorName(data.results[0]?.name || null);
+          setActorAllMovies(sorted);
+          setCurrentPage(1);
+        } catch (e) {
+          console.error('Actor filter flow failed:', e);
+          setResults([]);
+          setTotalResults(0);
+          setTotalPages(1);
+          setShowNoResults(true);
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Movie mode: use discover for sorting server-side if available, else sort client-side
+      const data = await discoverMovies(filters, currentPage, controller.signal);
+      if (data && Array.isArray(data.results)) {
+        const list = filters.sortBy ? sortMoviesBy(data.results, filters.sortBy) : data.results;
+        setResults(list);
+        setTotalResults(data.total_results || list.length || 0);
+        setTotalPages(data.total_pages || Math.ceil((data.total_results || list.length || 0) / moviesPerPage));
+      } else {
+        setResults([]);
+        setTotalResults(0);
+        setTotalPages(1);
+        setTimeout(() => setShowNoResults(true), 500);
+      }
+      setLoading(false);
+    };
+    doWork();
+    return () => controller.abort();
+  }, [filtersActive, filters, currentPage, discoverMovies, moviesPerPage, query, sortMoviesBy]);
+
   // Optimized search with debouncing
   useEffect(() => {
     if (isDev) console.log('🔍 Search effect triggered:', { query, currentPage, isActorMode });
@@ -207,8 +425,12 @@ function HomeContent() {
     if (isActorMode) {
       return;
     }
+    // If filters are active and actor mode is selected in filters, skip normal search
+    if (filtersActive && (filters.searchType ?? 'movie') === 'actor') {
+      return;
+    }
 
-    if (!query || !query.trim()) {
+    if (!deferredQuery || !deferredQuery.trim()) {
       if (isDev) console.log('❌ Empty query, clearing results');
       setResults([]);
       setCurrentPage(1);
@@ -218,23 +440,27 @@ function HomeContent() {
       setSelectedActorName(null);
       setActorAllMovies([]);
       setIsActorMode(false);
+      setAreSuggestionsVisible(false);
       return;
     }
 
     let controller: AbortController | null = null;
     const timeoutId = setTimeout(() => {
       if (isActorMode) return; // extra guard at execution time
-      if (isDev) console.log('🚀 Starting search for:', query, 'page:', currentPage);
+      if (isDev) console.log('🚀 Starting search for:', deferredQuery, 'page:', currentPage);
       setLoading(true);
       setShowNoResults(false); // Hide no results while loading
       controller = new AbortController();
-      searchMovies(query, currentPage, controller.signal)
+      searchMovies(deferredQuery, currentPage, controller.signal)
         .then((data) => {
           if (isDev) console.log('📊 Search data received:', data);
           if (data && data.results && Array.isArray(data.results)) {
-            // Use results as they come from API (no sorting)
-            if (isDev) console.log('🎯 Movies found:', data.results.length);
-            setResults(data.results);
+            let list = data.results as Movie[];
+            if (filtersActive && (filters.searchType ?? 'movie') === 'movie' && filters.sortBy) {
+              list = sortMoviesBy(list, filters.sortBy);
+            }
+            if (isDev) console.log('🎯 Movies found:', list.length);
+            setResults(list);
             setTotalResults(data.total_results || 0);
             setTotalPages(data.total_pages || Math.ceil((data.total_results || 0) / moviesPerPage));
             setSelectedActorName(null);
@@ -246,7 +472,7 @@ function HomeContent() {
               const key = 'recent_searches';
               const raw = localStorage.getItem(key);
               const list: Array<{ q: string; ts: number }> = raw ? JSON.parse(raw) : [];
-              const trimmed = query.trim();
+            const trimmed = deferredQuery.trim();
               if (trimmed) {
                 const now = Date.now();
                 const cutoff = now - 15 * 24 * 60 * 60 * 1000;
@@ -291,9 +517,9 @@ function HomeContent() {
       clearTimeout(timeoutId);
       if (controller) controller.abort();
     };
-  }, [query, currentPage, searchMovies, isActorMode, moviesPerPage]);
+  }, [deferredQuery, currentPage, searchMovies, isActorMode, moviesPerPage, filtersActive, filters.searchType, filters.sortBy, sortMoviesBy]);
 
-  // Fetch person suggestion on query change (debounced)
+  // Fetch suggestions on query change (debounced)
   useEffect(() => {
     // If in actor mode, keep it active unless the user changes the query
     if (isActorMode) {
@@ -308,30 +534,77 @@ function HomeContent() {
       return; // Do not fetch person suggestions while in actor mode
     }
 
-    // Reset suggestions when query changes (outside actor mode)
+    // If filters specify actor mode, fetch ACTOR suggestions for the current query (used internally, not shown in dropdown)
+    if (filtersActive && (filters.searchType ?? 'movie') === 'actor') {
+      setPersonSuggestions([]);
+      if (!query || !query.trim()) return;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(async () => {
+        try {
+          const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
+          if (personCache.has(query)) {
+            const fromCache = personCache.get(query)!;
+            setPersonSuggestions(fromCache);
+            return;
+          }
+          const res = await fetch(endpoint, { signal: controller.signal });
+          if (!res.ok) throw new Error('Failed to fetch person suggestion');
+          const data = await res.json();
+          type PersonLite = { id: number; name: string };
+          const raw: unknown[] = Array.isArray(data?.results) ? (data.results as unknown[]) : [];
+          const isPersonLite = (x: unknown): x is PersonLite => {
+            if (!x || typeof x !== 'object') return false;
+            const obj = x as Record<string, unknown>;
+            return typeof obj.id === 'number' && typeof obj.name === 'string';
+          };
+          const mapped: Array<PersonLite> = raw.filter(isPersonLite).slice(0, 5);
+          if (mapped.length > 0) {
+            personCache.set(query, mapped);
+            setPersonSuggestions(mapped);
+          } else {
+            setPersonSuggestions([]);
+          }
+        } catch (err) {
+          if (!(err instanceof Error && err.name === 'AbortError')) {
+            console.warn('Person suggestion error:', err);
+          }
+        }
+      }, 300);
+      return () => { clearTimeout(timeoutId); controller.abort(); };
+    }
+
+    // Otherwise, fetch MOVIE suggestions for the dropdown
+    if (suppressSuggestions) return;
     setPersonSuggestions([]);
+    setAreSuggestionsVisible(true);
     if (!query || !query.trim()) return;
     const controller = new AbortController();
     const timeoutId = setTimeout(async () => {
       try {
-        const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
+        const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
+        // reuse cache shape; store top 5 movie suggestions as {id,name:title}
         if (personCache.has(query)) {
           const fromCache = personCache.get(query)!;
           setPersonSuggestions(fromCache);
           return;
         }
         const res = await fetch(endpoint, { signal: controller.signal });
-        if (!res.ok) throw new Error('Failed to fetch person suggestion');
+        if (!res.ok) throw new Error('Failed to fetch movie suggestions');
         const data = await res.json();
-        // Build a safe, typed list of people without using 'any'
-        type PersonLite = { id: number; name: string };
+        type MovieLite = { id: number; title: string };
         const raw: unknown[] = Array.isArray(data?.results) ? (data.results as unknown[]) : [];
-        const isPersonLite = (x: unknown): x is PersonLite => {
-          if (!x || typeof x !== 'object') return false;
-          const obj = x as Record<string, unknown>;
-          return typeof obj.id === 'number' && typeof obj.name === 'string';
-        };
-        const mapped: Array<PersonLite> = raw.filter(isPersonLite).slice(0, 5);
+        const mapped = raw
+          .map((x) => {
+            const obj = x as Record<string, unknown>;
+            const id = obj.id;
+            const title = (obj.title || obj.name) as unknown;
+            if (typeof id === 'number' && typeof title === 'string') {
+              return { id, name: title } as { id: number; name: string };
+            }
+            return null;
+          })
+          .filter(Boolean)
+          .slice(0, 5) as Array<{ id: number; name: string }>;
         if (mapped.length > 0) {
           personCache.set(query, mapped);
           setPersonSuggestions(mapped);
@@ -340,12 +613,12 @@ function HomeContent() {
         }
       } catch (err) {
         if (!(err instanceof Error && err.name === 'AbortError')) {
-          console.warn('Person suggestion error:', err);
+          console.warn('Movie suggestion error:', err);
         }
       }
     }, 300);
     return () => { clearTimeout(timeoutId); controller.abort(); };
-  }, [query, isActorMode, actorQueryAtActivation]);
+  }, [query, isActorMode, actorQueryAtActivation, filtersActive, filters.searchType, suppressSuggestions]);
 
   // Confirm actor selection -> fetch all movies, paginate client-side
   const handleConfirmActor = useCallback(async (selected?: { id: number; name: string }) => {
@@ -409,22 +682,25 @@ function HomeContent() {
 
   // Memoized computed values
   const rows = useMemo(() => {
+    if (filtersActive) {
+      return Array.isArray(results) ? results : [];
+    }
     // If we're searching, only show search results (never fall back to trending)
     if (query.trim()) {
       return Array.isArray(results) ? results : [];
     }
     // If not searching, show trending movies
     return Array.isArray(trending) ? trending.slice(0, moviesPerPage) : [];
-  }, [query, results, trending]);
+  }, [filtersActive, query, results, trending]);
   
   // Featured memo not used separately (hero uses heroMovies instead)
 
   // Hero carousel (top 3 best movies)
   const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
   const heroMovies = useMemo(() => {
-    if (query || !trending || trending.length === 0) return [];
+    if (deferredQuery || !trending || trending.length === 0) return [];
     return getBestHeroMovies(trending);
-  }, [query, trending]);
+  }, [deferredQuery, trending]);
 
   // Advance hero every 5 seconds with smooth transition
   useEffect(() => {
@@ -474,6 +750,8 @@ function HomeContent() {
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value;
     setQuery(next);
+    setAreSuggestionsVisible(true);
+    setSuppressSuggestions(false);
     setCurrentPage(1); // Reset to first page when starting new search
     const url = next.trim() ? `/?q=${encodeURIComponent(next.trim())}` : "/";
     router.replace(url);
@@ -511,6 +789,11 @@ function HomeContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [router]);
 
+  // Prefetch movie route on hover/focus to make navigation feel instant
+  const handlePrefetchMovie = useCallback((id: number) => {
+    try { router.prefetch(`/movie/${id}`); } catch {}
+  }, [router]);
+
   return (
     <>
       <LoadingScreen isLoading={showLoadingScreen} />
@@ -523,27 +806,30 @@ function HomeContent() {
       >
         <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
         <div className="mx-auto max-w-7xl px-0 py-3">
-                          <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2.5 sm:py-3">
+            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2.5 sm:py-3">
             <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight shrink-0">
               <Image src="/movrex.svg" alt="Movrex" width={24} height={24} priority />
               <span><span className="text-[--color-primary]">Mov</span>rex</span>
             </Link>
-            <div className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
+            <div ref={searchBoxRef} className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
               <input
                   placeholder="Search movies or actors..."
                 value={query}
                 onChange={handleSearchChange}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && personSuggestions.length > 0 && !isActorMode) {
-                      e.preventDefault();
-                      handleConfirmActor(personSuggestions[0]);
+                    if (e.key === 'Enter' || e.key === 'NumpadEnter') {
+                      // Commit search and close suggestions
+                      setPersonSuggestions([]);
+                      setAreSuggestionsVisible(false);
+                      setSuppressSuggestions(true);
                     } else if (e.key === 'Escape' && personSuggestions.length > 0) {
                       e.preventDefault();
                       setPersonSuggestions([]);
+                      setAreSuggestionsVisible(false);
                     }
                   }}
-                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2.5 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 transition text-sm sm:text-base placeholder:text-white/50"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2.5 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
                 />
                 {query && (
                   <button
@@ -564,34 +850,40 @@ function HomeContent() {
                     Clear
                   </button>
                 )}
-                {personSuggestions.length > 0 && !isActorMode && query.trim() && (
+                {areSuggestionsVisible && personSuggestions.length > 0 && query.trim() && (
                   <div className="absolute left-0 right-0 top-full mt-2 z-[10000]">
                     <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-2 shadow-2xl">
                       <ul className="max-h-64 overflow-y-auto divide-y divide-white/10">
                         {personSuggestions.map((p) => (
                           <li key={p.id}>
                             <button
-                              onClick={() => handleConfirmActor(p)}
+                              onClick={() => {
+                                setQuery(p.name);
+                                setPersonSuggestions([]);
+                                setCurrentPage(1);
+                                setAreSuggestionsVisible(false);
+                                setSuppressSuggestions(true);
+                              }}
                               className="w-full text-left px-3 py-2 hover:bg-white/10 focus:bg-white/10 rounded-lg flex items-center justify-between gap-3"
                             >
                               <span className="text-sm text-white/90">{p.name}</span>
-                              <span className="text-xs text-white/50">Show movies</span>
+                              <span className="text-xs text-white/50">Search</span>
                             </button>
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-2 flex justify-end">
-                        <button 
-                          onClick={handleDismissSuggestion} 
-                          className="px-3 py-1.5 rounded-lg border border-white/30 text-white/90 text-sm hover:bg-white/20 transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
                     </div>
                   </div>
                 )}
             </div>
+            {(query.trim() || filtersOpen) && (
+              <button
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="rounded-full px-3 py-1.5 text-sm border transition bg-white/5 text-white/90 border-white/10 hover:bg-white/10"
+              >
+                {filtersOpen ? 'Close Filters' : 'Filters'}
+              </button>
+            )}
             <nav className="hidden md:flex items-center gap-1 ml-2 sm:ml-4">
               {([
                 { key: "trending", label: "Trending" },
@@ -639,6 +931,80 @@ function HomeContent() {
       </header>
 
         <main className="mx-auto max-w-7xl px-4 py-8 cv-auto">
+          {filtersOpen && (
+            <div className="mb-6 rounded-2xl border border-white/10 bg-black/30 backdrop-blur p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Search for</label>
+                  <div className="inline-flex rounded-lg overflow-hidden border border-white/20">
+                    <button
+                      onClick={() => setFilters((f) => ({ ...f, searchType: "movie" }))}
+                      className={`${(filters.searchType ?? "movie") === "movie" ? 'bg-white text-black' : 'bg-white/10 text-white/80 hover:bg-white/20'} px-3 py-2 text-sm`}
+                    >
+                      Movies
+                    </button>
+                    <button
+                      onClick={() => setFilters((f) => ({ ...f, searchType: "actor" }))}
+                      className={`${filters.searchType === "actor" ? 'bg-white text-black' : 'bg-white/10 text-white/80 hover:bg-white/20'} px-3 py-2 text-sm`}
+                    >
+                      Actor
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Sort by</label>
+                  <select
+                    value={filters.sortBy}
+                    onChange={(e) => setFilters((f) => ({ ...f, sortBy: e.target.value }))}
+                    className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30 text-white [&>option]:bg-gray-800 [&>option]:text-white [&>option:hover]:bg-gray-700 [&>option:focus]:bg-gray-700"
+                  >
+                    <option value="popularity.desc">Popularity ↓</option>
+                    <option value="popularity.asc">Popularity ↑</option>
+                    <option value="vote_average.desc">Rating ↓</option>
+                    <option value="vote_average.asc">Rating ↑</option>
+                    <option value="primary_release_date.desc">Release date ↓</option>
+                    <option value="primary_release_date.asc">Release date ↑</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setFiltersActive(true);
+                    if ((filters.searchType ?? 'movie') === 'actor' && query.trim()) {
+                      // actor mode will be resolved when applying
+                    } else {
+                      setIsActorMode(false);
+                      setSelectedActorName(null);
+                      setActorAllMovies([]);
+                    }
+                    setResults([]);
+                    setCurrentPage(1);
+                  }}
+                  className="rounded-lg bg-white text-black px-4 py-2 text-sm hover:bg-white/90"
+                >
+                  Apply filters
+                </button>
+                <button
+                  onClick={() => {
+                    setFilters((f) => ({ ...f, sortBy: 'popularity.desc', searchType: 'movie' }));
+                    setFiltersActive(false);
+                    setIsActorMode(false);
+                    setSelectedActorName(null);
+                    setActorAllMovies([]);
+                    setResults([]);
+                    setTotalResults(0);
+                    setTotalPages(1);
+                    setCurrentPage(1);
+                    setShowNoResults(false);
+                  }}
+                  className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/90 hover:bg-white/10"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
           {!query && heroMovies.length > 0 && (
           <motion.section
               initial={{ opacity: 0, y: 16 }}
@@ -725,7 +1091,9 @@ function HomeContent() {
                   >
                     <Link
                         href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
-                        className="inline-flex items-center gap-2 rounded-full bg-white text-black px-3 py-1.5 text-sm font-medium hover:bg-white/90 transition-colors shadow-lg"
+                        className="inline-flex items-center gap-2 rounded-full bg-red-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-red-700 transition-colors shadow-lg drop-shadow-[0_0_15px_rgba(239,68,68,0.6)]"
+                        onMouseEnter={() => { const id = heroMovies[currentHeroIndex]?.id; if (typeof id === 'number') handlePrefetchMovie(id); }}
+                        onFocus={() => { const id = heroMovies[currentHeroIndex]?.id; if (typeof id === 'number') handlePrefetchMovie(id); }}
                     >
                         <Info className="size-4" /> View Details
                     </Link>
@@ -747,14 +1115,14 @@ function HomeContent() {
           </motion.section>
         )}
 
-        <motion.div
+          <motion.div
             initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.15 }}
           className="mb-6"
         >
           <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
-            {query ? "Search results" : `${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} this week`}
+            {filtersActive ? 'Filtered results' : (query ? "Search results" : `${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} this week`)}
           </h2>
             {isActorMode && selectedActorName && (
               <div className="mt-1 text-white/60 text-sm flex items-center gap-3">
@@ -786,6 +1154,8 @@ function HomeContent() {
                     href={query.trim() ? { pathname: `/movie/${movie.id}`, query: { q: query.trim() } } : `/movie/${movie.id}`}
                     className="block"
                     prefetch={true}
+                    onMouseEnter={() => handlePrefetchMovie(movie.id)}
+                    onFocus={() => handlePrefetchMovie(movie.id)}
                   >
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                     {movie.poster_path ? (
@@ -823,8 +1193,8 @@ function HomeContent() {
           )}
     </div>
 
-          {/* Pagination Controls - Only show for search results */}
-          {query && totalPages > 1 && (
+          {/* Pagination Controls - Show for search or filters */}
+          {(filtersActive || query) && totalPages > 1 && (
             <div className="mt-8 flex flex-col items-center gap-4">
               <div className="text-white/60 text-sm" aria-live="polite">
                 Showing {((currentPage - 1) * moviesPerPage) + 1} to {Math.min(currentPage * moviesPerPage, totalResults)} of {totalResults} results
@@ -892,11 +1262,11 @@ function HomeContent() {
             </div>
           )}
 
-          {/* No Results Message for Search */}
-          {query && showNoResults && results.length === 0 && !loading && (
+          {/* No Results Message */}
+          {(filtersActive || query) && showNoResults && results.length === 0 && !loading && (
             <div className="mt-8 text-center">
               <div className="text-white/60 text-lg">
-                No movies found for &quot;{query}&quot;
+                {filtersActive ? 'No movies found for the selected filters' : <>No movies found for &quot;{query}&quot;</>}
               </div>
               <div className="text-white/40 text-sm mt-2">
                 Try a different search term or check your spelling
@@ -915,7 +1285,7 @@ function HomeContent() {
                   <div className="text-sm text-white/60 mb-2">Recently viewed</div>
                   <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                     {recentViews.slice(0, 12).map((v) => (
-                      <Link key={v.id} href={`/movie/${v.id}`} className="w-[110px] shrink-0" prefetch={true}>
+                      <Link key={v.id} href={`/movie/${v.id}`} className="w-[110px] shrink-0" prefetch={true} onMouseEnter={() => handlePrefetchMovie(v.id)} onFocus={() => handlePrefetchMovie(v.id)}>
                         <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-gray-900">
                           {v.poster_path ? (
                             <Image src={TMDB.img(v.poster_path, 'w300')} alt={v.title} fill sizes="20vw" className="object-cover" />
@@ -956,7 +1326,7 @@ function HomeContent() {
             <h3 className="text-lg font-semibold mb-2">Now trending</h3>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                     {trending.slice(0, 12).map((m) => (
-                      <Link key={m.id} href={`/movie/${m.id}`} className="w-[110px] shrink-0" prefetch={true}>
+                      <Link key={m.id} href={`/movie/${m.id}`} className="w-[110px] shrink-0" prefetch={true} onMouseEnter={() => handlePrefetchMovie(m.id)} onFocus={() => handlePrefetchMovie(m.id)}>
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-gray-900">
                     {m.poster_path ? (
                       <Image src={TMDB.img(m.poster_path, 'w300')} alt={m.title || m.name || 'Movie'} fill sizes="20vw" className="object-cover" />
