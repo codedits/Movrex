@@ -535,7 +535,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                         )}
                       <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                         <span className="text-yellow-400">★</span>
-                        {rec.vote_average.toFixed(1)}
+                        {(rec.vote_average ?? 0).toFixed(1)}
                       </div>
                     </div>
                     <div className="mt-2">
@@ -575,7 +575,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     )}
                     <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                       <span className="text-yellow-400">★</span>
-                      {rec.vote_average.toFixed(1)}
+                      {(rec.vote_average ?? 0).toFixed(1)}
                     </div>
                   </div>
                   <div className="mt-2">

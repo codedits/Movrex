@@ -184,15 +184,34 @@ function HomeContent() {
   // Separate search function that returns full API response
   const searchMovies = useCallback(async (query: string, page: number, signal: AbortSignal) => {
     try {
+      if (!TMDB.key) {
+        console.error('TMDB API key is not configured');
+        return null;
+      }
+      
       const cacheKey = `${query}::${page}`;
       if (searchCache.has(cacheKey)) {
         if (isDev) console.log('⚡ cache hit (search):', cacheKey);
         return searchCache.get(cacheKey);
       }
+      
       const movieEndpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB.key}&page=${page}`;
       const movieRes = await fetch(movieEndpoint, { signal });
-      if (!movieRes.ok) throw new Error('Failed to fetch movie search');
+      
+      if (!movieRes.ok) {
+        const errorText = await movieRes.text();
+        console.error('TMDB API error:', movieRes.status, errorText);
+        throw new Error(`TMDB API error: ${movieRes.status}`);
+      }
+      
       const movieData = await movieRes.json();
+      
+      // Validate the response structure
+      if (!movieData || typeof movieData !== 'object') {
+        console.error('Invalid TMDB response structure:', movieData);
+        return null;
+      }
+      
       searchCache.set(cacheKey, movieData);
       return movieData;
     } catch (error) {
@@ -257,6 +276,15 @@ function HomeContent() {
       if (e instanceof Error && e.name === 'AbortError') return null;
       console.error('Discover error:', e);
       return null;
+    }
+  }, []);
+
+  // Check TMDB API key configuration
+  useEffect(() => {
+    if (!TMDB.key) {
+      console.error('❌ TMDB API key is not configured. Please check your environment variables.');
+    } else if (isDev) {
+      console.log('✅ TMDB API key is configured');
     }
   }, []);
 
@@ -443,6 +471,8 @@ function HomeContent() {
       setAreSuggestionsVisible(false);
       return;
     }
+    
+
 
     let controller: AbortController | null = null;
     const timeoutId = setTimeout(() => {
@@ -450,12 +480,42 @@ function HomeContent() {
       if (isDev) console.log('🚀 Starting search for:', deferredQuery, 'page:', currentPage);
       setLoading(true);
       setShowNoResults(false); // Hide no results while loading
+      setResults([]); // Clear previous results immediately
       controller = new AbortController();
       searchMovies(deferredQuery, currentPage, controller.signal)
         .then((data) => {
-          if (isDev) console.log('📊 Search data received:', data);
+          if (isDev) console.log('📊 Search data received for query:', deferredQuery, 'Data:', data);
+          
+          // Debug the data structure
+          if (isDev && data) {
+            console.log('🔍 Data structure analysis:', {
+              hasData: !!data,
+              dataType: typeof data,
+              hasResults: !!data.results,
+              resultsType: Array.isArray(data.results),
+              resultsLength: data.results?.length,
+              firstResult: data.results?.[0],
+              totalResults: data.total_results,
+              totalPages: data.total_pages
+            });
+          }
+          
           if (data && data.results && Array.isArray(data.results)) {
             let list = data.results as Movie[];
+            
+            // Debug the results before sorting
+            if (isDev) {
+              console.log('🎬 Raw results before processing:', list.slice(0, 2));
+              console.log('🔍 First result structure:', list[0] ? {
+                id: list[0].id,
+                title: list[0].title,
+                name: list[0].name,
+                hasId: typeof list[0].id === 'number',
+                hasTitle: typeof list[0].title === 'string',
+                hasName: typeof list[0].name === 'string'
+              } : 'No first result');
+            }
+            
             if (filtersActive && (filters.searchType ?? 'movie') === 'movie' && filters.sortBy) {
               list = sortMoviesBy(list, filters.sortBy);
             }
@@ -491,8 +551,8 @@ function HomeContent() {
             setSelectedActorName(null);
             setIsActorMode(false);
             setActorAllMovies([]);
-            // Delay showing no results message to prevent flickering
-            setTimeout(() => setShowNoResults(true), 500);
+            // Show no results message immediately
+            setShowNoResults(true);
           }
         })
         .catch((error) => {
@@ -501,14 +561,26 @@ function HomeContent() {
             return;
           }
           console.error('❌ Search error:', error);
+          
+          // Handle specific error types
+          if (error instanceof Error) {
+            if (error.message.includes('TMDB API error: 401')) {
+              console.error('❌ TMDB API key is invalid or expired');
+            } else if (error.message.includes('TMDB API error: 429')) {
+              console.error('❌ TMDB API rate limit exceeded');
+            } else if (error.message.includes('TMDB API error: 500')) {
+              console.error('❌ TMDB API server error');
+            }
+          }
+          
           setResults([]);
           setTotalResults(0);
           setTotalPages(1);
           setSelectedActorName(null);
           setIsActorMode(false);
           setActorAllMovies([]);
-          // Delay showing no results message on error
-          setTimeout(() => setShowNoResults(true), 500);
+          // Show no results message immediately on error
+          setShowNoResults(true);
         })
         .finally(() => setLoading(false));
     }, 300); // debounce delay
@@ -578,9 +650,17 @@ function HomeContent() {
     setPersonSuggestions([]);
     setAreSuggestionsVisible(true);
     if (!query || !query.trim()) return;
+    
+
+    
     const controller = new AbortController();
     const timeoutId = setTimeout(async () => {
       try {
+        if (!TMDB.key) {
+          console.error('TMDB API key is not configured for suggestions');
+          return;
+        }
+        
         const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
         // reuse cache shape; store top 5 movie suggestions as {id,name:title}
         if (personCache.has(query)) {
@@ -588,23 +668,71 @@ function HomeContent() {
           setPersonSuggestions(fromCache);
           return;
         }
+        
         const res = await fetch(endpoint, { signal: controller.signal });
-        if (!res.ok) throw new Error('Failed to fetch movie suggestions');
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('TMDB suggestions API error:', res.status, errorText);
+          throw new Error(`TMDB suggestions API error: ${res.status}`);
+        }
+        
         const data = await res.json();
+        
+        // Debug logging for problematic queries
+        if (isDev) {
+          console.log('🔍 TMDB suggestions response for query:', query);
+          console.log('📊 Response structure:', {
+            hasData: !!data,
+            dataType: typeof data,
+            hasResults: !!data?.results,
+            resultsType: Array.isArray(data?.results),
+            resultsLength: data?.results?.length,
+            firstResult: data?.results?.[0]
+          });
+        }
+        
+        // Validate the response structure
+        if (!data || typeof data !== 'object' || !Array.isArray(data.results)) {
+          console.error('Invalid TMDB suggestions response structure:', data);
+          setPersonSuggestions([]);
+          return;
+        }
+        
         type MovieLite = { id: number; title: string };
-        const raw: unknown[] = Array.isArray(data?.results) ? (data.results as unknown[]) : [];
+        const raw: unknown[] = data.results;
+        
+        if (isDev) {
+          console.log('🎬 Raw results before mapping:', raw.slice(0, 2));
+        }
+        
         const mapped = raw
-          .map((x) => {
-            const obj = x as Record<string, unknown>;
-            const id = obj.id;
-            const title = (obj.title || obj.name) as unknown;
-            if (typeof id === 'number' && typeof title === 'string') {
-              return { id, name: title } as { id: number; name: string };
+          .map((x, index) => {
+            try {
+              if (isDev) console.log(`🔍 Mapping item ${index}:`, x);
+              if (!x || typeof x !== 'object') {
+                if (isDev) console.log(`❌ Item ${index} is not an object:`, x);
+                return null;
+              }
+              const obj = x as Record<string, unknown>;
+              const id = obj.id;
+              const title = (obj.title || obj.name) as unknown;
+              
+              if (isDev) console.log(`🔍 Item ${index} - id:`, id, 'title:', title, 'types:', typeof id, typeof title);
+              
+              if (typeof id === 'number' && typeof title === 'string') {
+                return { id, name: title } as { id: number; name: string };
+              }
+              
+              if (isDev) console.log(`❌ Item ${index} failed validation - id:`, id, 'title:', title);
+              return null;
+            } catch (mapError) {
+              console.error(`❌ Error mapping movie suggestion item ${index}:`, mapError, 'Item:', x);
+              return null;
             }
-            return null;
           })
           .filter(Boolean)
           .slice(0, 5) as Array<{ id: number; name: string }>;
+          
         if (mapped.length > 0) {
           personCache.set(query, mapped);
           setPersonSuggestions(mapped);
@@ -614,6 +742,7 @@ function HomeContent() {
       } catch (err) {
         if (!(err instanceof Error && err.name === 'AbortError')) {
           console.warn('Movie suggestion error:', err);
+          setPersonSuggestions([]);
         }
       }
     }, 300);
@@ -1132,7 +1261,12 @@ function HomeContent() {
                 <button onClick={clearActorFilter} className="text-xs rounded-md border border-white/15 px-2 py-1 text-white/70 hover:bg-white/10">Clear</button>
               </div>
             )}
-            {loading && <div className="mt-2 text-white/60" aria-live="polite">Loading...</div>}
+            {loading && (
+              <div className="mt-2 text-white/60 flex items-center justify-center gap-2" aria-live="polite">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                Searching for movies...
+              </div>
+            )}
         </motion.div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
@@ -1142,14 +1276,21 @@ function HomeContent() {
               <MovieCardSkeleton key={i} />
             ))
           ) : (
-            rows.map((movie) => (
-              <motion.article
-                key={movie.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                className="group"
-              >
+            rows.map((movie) => {
+              // Validate movie object has required properties
+              if (!movie || typeof movie !== 'object' || !movie.id) {
+                console.warn('Invalid movie object:', movie);
+                return null;
+              }
+              
+              return (
+                <motion.article
+                  key={movie.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="group"
+                >
                   <Link
                     href={query.trim() ? { pathname: `/movie/${movie.id}`, query: { q: query.trim() } } : `/movie/${movie.id}`}
                     className="block"
@@ -1176,7 +1317,7 @@ function HomeContent() {
                     )}
                     <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                       <span className="text-yellow-400">★</span>
-                      {movie.vote_average.toFixed(1)}
+                      {(movie.vote_average ?? 0).toFixed(1)}
                     </div>
                   </div>
                   <div className="mt-2">
@@ -1189,7 +1330,8 @@ function HomeContent() {
                   </div>
                 </Link>
               </motion.article>
-            ))
+            );
+          }).filter(Boolean)
           )}
     </div>
 
@@ -1263,14 +1405,32 @@ function HomeContent() {
           )}
 
           {/* No Results Message */}
-          {(filtersActive || query) && showNoResults && results.length === 0 && !loading && (
+          {(filtersActive || query) && results.length === 0 && !loading && (
             <div className="mt-8 text-center">
-              <div className="text-white/60 text-lg">
-                {filtersActive ? 'No movies found for the selected filters' : <>No movies found for &quot;{query}&quot;</>}
+              <div className="text-white/60 text-lg mb-3">
+                {filtersActive ? (
+                  'No movies found for the selected filters'
+                ) : (
+                  <>🎬 No movies found for &quot;{query}&quot;</>
+                )}
               </div>
-              <div className="text-white/40 text-sm mt-2">
-                Try a different search term or check your spelling
+              <div className="text-white/40 text-sm mb-4">
+                {filtersActive ? (
+                  'Try adjusting your filter criteria or search for something else'
+                ) : (
+                  'Try a different search term or check your spelling'
+                )}
               </div>
+              
+              {/* Helpful suggestions for search */}
+              {!filtersActive && query && (
+                <div className="text-white/30 text-xs space-y-1">
+                  <p>💡 Search tips:</p>
+                  <p>• Use movie titles, actor names, or keywords</p>
+                  <p>• Try shorter or more general terms</p>
+                  <p>• Check for typos in your search</p>
+                </div>
+              )}
             </div>
           )}
       </main>
@@ -1337,6 +1497,16 @@ function HomeContent() {
                   <div className="mt-1 text-xs line-clamp-2 text-white/80">{m.title || m.name}</div>
                 </Link>
               ))}
+            </div>
+          </section>
+        )}
+        
+        {/* No trending movies message */}
+        {(!Array.isArray(trending) || trending.length === 0) && !query && !filtersActive && (
+          <section className="mx-auto max-w-7xl px-4 mt-6 mb-8 cv-auto">
+            <div className="text-center text-white/40">
+              <p className="text-lg mb-2">🎬 Welcome to Movrex!</p>
+              <p className="text-sm">Start searching for movies or browse trending content</p>
             </div>
           </section>
         )}
