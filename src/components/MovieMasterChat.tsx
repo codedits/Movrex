@@ -6,11 +6,11 @@ import { useRouter } from "next/navigation";
 import { X, Send } from "lucide-react";
 
 type ChatMessage = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
 };
 
-const BK9_ENDPOINT = "https://api.bk9.dev/ai/BK9";
+const BK9_ENDPOINT = "https://api.bk9.dev/ai/gemini";
 
 const SYSTEM_PROMPT =
   "You are Movie Master, a helpful movie recommendation assistant inside the Movrex app. Be concise, friendly, and focus on recommending great films with year and genre. When helpful, suggest related titles. Keep answers under 3-5 lines. Format movie titles in **bold** so the UI can make them clickable.";
@@ -47,6 +47,10 @@ export default function MovieMasterChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: "system",
+      content: SYSTEM_PROMPT,
+    },
     {
       role: "assistant",
       content:
@@ -89,21 +93,46 @@ export default function MovieMasterChat() {
 
   // Build a compact transcript from recent messages to provide conversational context
   const buildTranscript = useCallback((history: ChatMessage[], nextUser: string): string => {
+    // Always include the system prompt as the first message
     const recent = history.slice(-8);
-    const lines = recent.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+    const lines = [];
+    const systemMsg = history.find((m) => m.role === "system");
+    if (systemMsg) lines.push(`System: ${systemMsg.content}`);
+    lines.push(...recent.filter((m) => m.role !== "system").map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`));
     lines.push(`User: ${nextUser}`);
     return lines.join("\n");
   }, []);
 
   const sendToBK9 = useCallback(async (userText: string, contextTranscript: string): Promise<string> => {
-    const combined = contextTranscript && contextTranscript.trim().length > 0
-      ? `[Conversation]\n${contextTranscript}\n\nAssistant:`
-      : userText;
-    const url = `${BK9_ENDPOINT}?BK9=${encodeURIComponent(SYSTEM_PROMPT)}&q=${encodeURIComponent(combined)}&model=gpt4_o_mini`;
-    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`BK9 error: ${res.status}`);
-    const data = await res.json();
-    return (data?.BK9 as string) || "Sorry, I couldn’t generate a reply right now.";
+    try {
+      // Use the Gemini API, send the transcript as 'q'
+      const url = `${BK9_ENDPOINT}?q=${encodeURIComponent(contextTranscript)}`;
+      const res = await fetch(url, { 
+        method: "GET", 
+        headers: { Accept: "application/json" },
+        // Add timeout to prevent hanging requests
+        signal: AbortSignal.timeout(15000) // 15 second timeout
+      });
+      
+      if (!res.ok) {
+        console.error(`BK9 API error: ${res.status} ${res.statusText}`);
+        throw new Error(`API error: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      // Check if the API returned an error
+      if (data.status === false) {
+        console.error('BK9 API returned error:', data.err);
+        throw new Error(data.err || 'API returned error status');
+      }
+      
+      // Return the response from the Gemini API
+      return (data?.BK9 as string) || (data?.response as string) || "Sorry, I couldn't generate a reply right now.";
+    } catch (error) {
+      console.error('Chat API error:', error);
+      throw error;
+    }
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -117,10 +146,24 @@ export default function MovieMasterChat() {
     try {
       const reply = await sendToBK9(text, transcript);
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
-    } catch {
+    } catch (error) {
+      console.error('Chat error:', error);
+      let errorMessage = "Hmm, I'm having trouble reaching the recommendation service. Please try again in a moment.";
+      
+      // Provide more specific error messages based on the error type
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('AbortError')) {
+          errorMessage = "The request took too long. Please try again.";
+        } else if (error.message.includes('API error: 429')) {
+          errorMessage = "Too many requests. Please wait a moment and try again.";
+        } else if (error.message.includes('API error: 500')) {
+          errorMessage = "The AI service is temporarily unavailable. Please try again later.";
+        }
+      }
+      
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: "Hmm, I’m having trouble reaching the recommendation service. Please try again in a moment." },
+        { role: "assistant", content: errorMessage },
       ]);
     } finally {
       setSending(false);
@@ -269,7 +312,13 @@ export default function MovieMasterChat() {
                       const attr = target?.getAttribute?.("data-mm-movie");
                       if (attr) {
                         const title = decodeURIComponent(attr).replace(/\s*\(\d{4}\)\s*$/, "").trim();
-                        try { localStorage.setItem('mm_pending_query', title); } catch {}
+                        try { 
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('mm_pending_query', title); 
+                          }
+                        } catch (error) {
+                          console.warn('Error setting pending query:', error);
+                        }
                         router.push(`/?q=${encodeURIComponent(title)}`);
                       }
                     }}
