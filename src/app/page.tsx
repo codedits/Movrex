@@ -413,7 +413,10 @@ function HomeContent() {
           setIsActorMode(true);
           setSelectedActorName(data.results[0]?.name || null);
           setActorAllMovies(sorted);
-          setCurrentPage(1);
+          // Don't unconditionally reset currentPage here — the Apply filters button
+          // already resets to page 1. Resetting on every effect run causes the
+          // page to snap back to 1 when users try to change pages. Keep current
+          // page intact so pagination controls work as expected.
         } catch (e) {
           console.error('Actor filter flow failed:', e);
           setResults([]);

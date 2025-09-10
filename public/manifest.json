@@ -1,0 +1,77 @@
+{
+  "name": "Movrex - Discover Movies",
+  "short_name": "Movrex",
+  "description": "Discover trending, popular, and top-rated movies with a fast, modern interface",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0f",
+  "theme_color": "#0b0b0f",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["entertainment", "movies", "tv"],
+  "icons": [
+    {
+      "src": "/movrex.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/movrex.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/movrex.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Trending Movies",
+      "short_name": "Trending",
+      "description": "View trending movies",
+      "url": "/?category=trending",
+      "icons": [{ "src": "/movrex.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "Popular Movies",
+      "short_name": "Popular",
+      "description": "View popular movies",
+      "url": "/?category=popular",
+      "icons": [{ "src": "/movrex.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "Top Rated",
+      "short_name": "Top Rated",
+      "description": "View top rated movies",
+      "url": "/?category=top_rated",
+      "icons": [{ "src": "/movrex.svg", "sizes": "96x96" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Movrex Homepage"
+    },
+    {
+      "src": "/screenshot-narrow.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Movrex Mobile View"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  }
+}
+
+
