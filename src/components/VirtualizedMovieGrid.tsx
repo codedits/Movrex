@@ -109,13 +109,23 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
           </div>
         </div>
         
-        <div className="mt-2">
+  <div className="mt-2">
           <h3 className="font-medium text-base line-clamp-2 group-hover:text-white/80 transition-colors">
             {movieTitle}
           </h3>
           <p className="text-white/60 text-xs mt-1">
             {movieYear}
           </p>
+          <div className="mt-2">
+            <a
+              href={`https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(movieTitle.replace(/\s+/g, '+'))}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded"
+            >
+              Watch Now
+            </a>
+          </div>
         </div>
       </Link>
     </motion.article>

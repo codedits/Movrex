@@ -158,6 +158,9 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
   const recs = movie.recommendations?.results?.slice(0, 12) || [];
   const posters = movie.images?.posters?.slice(0, 12) || [];
   const backdrops = movie.images?.backdrops?.slice(0, 12) || [];
+  const watchNowUrl = `https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(
+    movie.title.replace(/\s+/g, '+')
+  )}`;
   // Fetch additional data in parallel now that we have the movie (for region and collection)
   const [watch, collectionParts] = await Promise.all([
     fetchWatchProviders(id),
@@ -196,6 +199,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
           <div className="md:col-span-2">
             <FadeIn>
               <h1 className="text-3xl font-semibold tracking-tight">{movie.title}</h1>
+           
               <div className="mt-2 text-white/70 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span><span className="text-yellow-400">★</span> {movie.vote_average?.toFixed(1)}</span>
                 {movie.release_date && <span>· {movie.release_date?.slice(0, 4)}</span>}
@@ -297,20 +301,35 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
 
             {ytTrailer && (
               <FadeIn>
-              <div className="mt-6">
-                <h3 className="font-semibold text-white mb-3">Trailer</h3>
-                <a
-                  href={`https://www.youtube.com/watch?v=${ytTrailer.key}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                  </svg>
-                  Watch Trailer
-                </a>
-              </div>
+                <div className="mt-6">
+                  <h3 className="font-semibold text-white mb-3">Trailer</h3>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a
+                      href={`https://www.youtube.com/watch?v=${ytTrailer.key}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                      </svg>
+                      Watch Trailer
+                    </a>
+
+                    <a
+                      href={watchNowUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 12h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      Watch Now
+                    </a>
+                  </div>
+                </div>
               </FadeIn>
             )}
           </div>
@@ -459,6 +478,14 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                       <p className="text-white/60 text-xs mt-1">
                         {rec.release_date?.split("-")[0] || "N/A"}
                       </p>
+                      <a
+                        href={`https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(rec.title.replace(/\s+/g, '+'))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded"
+                      >
+                        Watch Now
+                      </a>
                     </div>
                     </ScaleIn>
                   </Link>
@@ -499,6 +526,14 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     <p className="text-white/60 text-xs mt-1">
                       {rec.release_date?.split("-")[0] || "N/A"}
                     </p>
+                    <a
+                      href={`https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(rec.title.replace(/\s+/g, '+'))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded"
+                    >
+                      Watch Now
+                    </a>
                   </div>
                   </ScaleIn>
                 </Link>
@@ -545,6 +580,14 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                       <p className="text-white/60 text-xs mt-1">
                         {rec.release_date?.split("-")[0] || "N/A"}
                       </p>
+                      <a
+                        href={`https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(rec.title.replace(/\s+/g, '+'))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded"
+                      >
+                        Watch Now
+                      </a>
                     </div>
                     </ScaleIn>
                   </Link>
@@ -585,6 +628,14 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     <p className="text-white/60 text-xs mt-1">
                       {rec.release_date?.split("-")[0] || "N/A"}
                     </p>
+                    <a
+                      href={`https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(rec.title.replace(/\s+/g, '+'))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded"
+                    >
+                      Watch Now
+                    </a>
                   </div>
                   </ScaleIn>
                 </Link>
