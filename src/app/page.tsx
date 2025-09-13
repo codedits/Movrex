@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback, Suspense, useDeferredValue, useRef } from "react";
+import Fuse from 'fuse.js';
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Search, Info, ArrowRight } from "lucide-react";
@@ -96,7 +97,7 @@ function HomeContent() {
   const [trending, setTrending] = useState<Movie[]>([]);
   const [results, setResults] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
-  const [category, setCategory] = useState<"trending" | "popular" | "top_rated" | "upcoming">(
+  const [category, setCategory] = useState<"trending" | "popular" | "top_rated" | "upcoming" | "anime">(
     "trending"
   );
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
@@ -221,6 +222,38 @@ function HomeContent() {
     }
   }, []);
 
+  // Fuse instance for client-side fuzzy fallback searches (built on trending + cached results)
+  const fuseRef = useRef<Fuse<Movie> | null>(null);
+  useEffect(() => {
+    // Build fuse index from trending + any cached search results
+    const buildIndex = () => {
+      const base: Movie[] = [];
+      // include trending
+      if (Array.isArray(trending)) base.push(...trending);
+      // include cached search results
+      for (const value of searchCache.values()) {
+        if (value && Array.isArray(value.results)) base.push(...value.results);
+      }
+      // dedupe by id
+      const map = new Map<number, Movie>();
+      for (const m of base) {
+        if (m && typeof m.id === 'number' && !map.has(m.id)) map.set(m.id, m);
+      }
+      const list = Array.from(map.values());
+      if (list.length > 0) {
+        fuseRef.current = new Fuse(list, {
+          keys: ['title', 'name', 'overview'],
+          threshold: 0.4,
+          ignoreLocation: true,
+          includeScore: true,
+        });
+      } else {
+        fuseRef.current = null;
+      }
+    };
+    buildIndex();
+  }, [trending]);
+
   // Utility: client-side sorting for search results when filtersActive
   const sortMoviesBy = useCallback((list: Movie[], sortBy: string): Movie[] => {
     const items = Array.isArray(list) ? list.slice() : [];
@@ -336,9 +369,15 @@ function HomeContent() {
     if (query.trim()) return;
     
     const controller = new AbortController();
-    const endpoint = category === "trending"
-      ? `${TMDB.base}/trending/movie/week?api_key=${TMDB.key}`
-      : `${TMDB.base}/movie/${category}?api_key=${TMDB.key}`;
+    let endpoint: string;
+    if (category === "trending") {
+      endpoint = `${TMDB.base}/trending/movie/week?api_key=${TMDB.key}`;
+    } else if (category === "anime") {
+      // Use discover to filter Animation genre (id 16) and prefer Japanese originals
+      endpoint = `${TMDB.base}/discover/movie?with_genres=16&with_original_language=ja&sort_by=popularity.desc&api_key=${TMDB.key}`;
+    } else {
+      endpoint = `${TMDB.base}/movie/${category}?api_key=${TMDB.key}`;
+    }
     
     setLoading(true);
     
@@ -503,7 +542,7 @@ function HomeContent() {
             });
           }
           
-          if (data && data.results && Array.isArray(data.results)) {
+          if (data && data.results && Array.isArray(data.results) && data.results.length > 0) {
             let list = data.results as Movie[];
             
             // Debug the results before sorting
@@ -547,14 +586,34 @@ function HomeContent() {
               }
             } catch {}
           } else {
-            if (isDev) console.log('⚠️ No results in data:', data);
+            if (isDev) console.log('⚠️ No results in data, trying fuzzy fallback:', data);
+            // Try fuzzy client-side fallback using Fuse (on cached/trending data)
+            const fuse = fuseRef.current;
+            if (fuse && deferredQuery.trim()) {
+              const fuseRes = fuse.search(deferredQuery.trim(), { limit: 50 });
+              const mapped = fuseRes.map(r => r.item);
+              if (mapped.length > 0) {
+                if (isDev) console.log('🔎 Fuzzy fallback matched:', mapped.length);
+                setResults(mapped.slice(0, moviesPerPage));
+                setTotalResults(mapped.length);
+                setTotalPages(Math.max(1, Math.ceil(mapped.length / moviesPerPage)));
+                setSelectedActorName(null);
+                setIsActorMode(false);
+                setActorAllMovies([]);
+                setShowNoResults(false);
+                // Persist recent search term
+                try { const key = 'recent_searches'; const raw = localStorage.getItem(key); const list: Array<{ q: string; ts: number }> = raw ? JSON.parse(raw) : []; const trimmed = deferredQuery.trim(); if (trimmed) { const now = Date.now(); const cutoff = now - 15 * 24 * 60 * 60 * 1000; const pruned = list.filter((x) => x.ts >= cutoff && x.q.toLowerCase() !== trimmed.toLowerCase()); pruned.unshift({ q: trimmed, ts: now }); const capped = pruned.slice(0, 10); localStorage.setItem(key, JSON.stringify(capped)); } } catch {}
+                // done
+                return;
+              }
+            }
+            // No fuzzy matches either: show no results
             setResults([]);
             setTotalResults(0);
             setTotalPages(1);
             setSelectedActorName(null);
             setIsActorMode(false);
             setActorAllMovies([]);
-            // Show no results message immediately
             setShowNoResults(true);
           }
         })
@@ -740,6 +799,16 @@ function HomeContent() {
           personCache.set(query, mapped);
           setPersonSuggestions(mapped);
         } else {
+          // Try fuzzy fallback suggestions
+          const fuse = fuseRef.current;
+          if (fuse && query.trim()) {
+            const f = fuse.search(query.trim(), { limit: 5 }).map(r => ({ id: r.item.id, name: r.item.title || r.item.name || '' }));
+            if (f.length > 0) {
+              personCache.set(query, f);
+              setPersonSuggestions(f);
+              return;
+            }
+          }
           setPersonSuggestions([]);
         }
       } catch (err) {
@@ -906,7 +975,7 @@ function HomeContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [router]);
 
-  const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming") => {
+  const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming" | "anime") => {
     setCategory(next);
     setQuery("");
     setResults([]);
@@ -1022,6 +1091,7 @@ function HomeContent() {
                 { key: "popular", label: "Popular" },
                 { key: "top_rated", label: "Top Rated" },
                 { key: "upcoming", label: "Upcoming" },
+                { key: "anime", label: "Anime" },
               ] as const).map((tab) => (
                 <button
                   key={tab.key}
@@ -1044,6 +1114,7 @@ function HomeContent() {
                 { key: "popular", label: "Popular" },
                 { key: "top_rated", label: "Top Rated" },
                 { key: "upcoming", label: "Upcoming" },
+                { key: "anime", label: "Anime" },
               ] as const).map((tab) => (
                 <button
                   key={tab.key}
