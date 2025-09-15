@@ -225,33 +225,64 @@ function HomeContent() {
   // Fuse instance for client-side fuzzy fallback searches (built on trending + cached results)
   const fuseRef = useRef<Fuse<Movie> | null>(null);
   useEffect(() => {
-    // Build fuse index from trending + any cached search results
-    const buildIndex = () => {
+    const MAX_FUSE_ITEMS = 200; // cap to avoid heavy index builds on low-end devices
+
+    const score = (m: Movie) => {
+      const r = typeof m.vote_average === 'number' ? m.vote_average : 0;
+      const p = typeof m.popularity === 'number' ? m.popularity : 0;
+      return r * 1000 + p;
+    };
+
+    const buildIndexNow = () => {
       const base: Movie[] = [];
-      // include trending
       if (Array.isArray(trending)) base.push(...trending);
-      // include cached search results
       for (const value of searchCache.values()) {
         if (value && Array.isArray(value.results)) base.push(...value.results);
       }
-      // dedupe by id
       const map = new Map<number, Movie>();
       for (const m of base) {
         if (m && typeof m.id === 'number' && !map.has(m.id)) map.set(m.id, m);
       }
-      const list = Array.from(map.values());
+      let list = Array.from(map.values());
+
+      if (list.length > MAX_FUSE_ITEMS) {
+        list = list.sort((a, b) => score(b) - score(a)).slice(0, MAX_FUSE_ITEMS);
+      }
+
       if (list.length > 0) {
-        fuseRef.current = new Fuse(list, {
-          keys: ['title', 'name', 'overview'],
-          threshold: 0.4,
-          ignoreLocation: true,
-          includeScore: true,
-        });
+        try {
+          fuseRef.current = new Fuse(list, {
+            keys: ['title', 'name', 'overview'],
+            threshold: 0.4,
+            ignoreLocation: true,
+            includeScore: true,
+          });
+        } catch (e) {
+          console.warn('Failed to build Fuse index:', e);
+          fuseRef.current = null;
+        }
       } else {
         fuseRef.current = null;
       }
     };
-    buildIndex();
+
+    // Schedule index build during idle time to avoid blocking initial paint
+    const schedule = () => {
+      if (typeof window === 'undefined') return buildIndexNow();
+      if ('requestIdleCallback' in window) {
+        const win = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => void };
+        if (typeof win.requestIdleCallback === 'function') {
+          win.requestIdleCallback(buildIndexNow, { timeout: 1200 });
+        } else {
+          setTimeout(buildIndexNow, 600);
+        }
+      } else {
+        setTimeout(buildIndexNow, 600);
+      }
+    };
+
+    schedule();
+    // rebuild when trending changes
   }, [trending]);
 
   // Utility: client-side sorting for search results when filtersActive
@@ -1005,9 +1036,9 @@ function HomeContent() {
         transition={{ duration: 0.8, delay: 0.2 }}
           style={{ willChange: 'auto' }}
       >
-        <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
+  <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
         <div className="mx-auto max-w-7xl px-0 py-2">
-            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-3">
+            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 px-3 sm:px-4 py-1.5 sm:py-3">
             <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-sm sm:text-lg font-semibold tracking-tight shrink-0">
               <Image src="/movrex.svg" alt="Movrex" width={20} height={20} priority className="w-5 h-5 sm:w-6 sm:h-6" />
               <span className="text-sm sm:text-base"><span className="text-[--color-primary]">Mov</span>rex</span>
@@ -1386,7 +1417,7 @@ function HomeContent() {
                         No image
                       </div>
                     )}
-                    <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+                    <div className="absolute top-2 right-2 bg-black/80 rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
                       <span className="text-yellow-400">★</span>
                       {(movie.vote_average ?? 0).toFixed(1)}
                     </div>

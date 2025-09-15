@@ -212,7 +212,7 @@ export default function HeroSection({ onMovieSelect }: HeroSectionProps) {
                initial={{ opacity: 0, y: 20 }}
                animate={{ opacity: 1, y: 0 }}
                transition={{ duration: 0.4, delay: 0.1, ease: "easeOut" }}
-               className="mt-3 inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-3 py-1.5 text-sm font-medium"
+               className="mt-3 inline-flex items-center gap-2 bg-white/20 rounded-full px-3 py-1.5 text-sm font-medium"
              >
                <span className="text-yellow-400">★</span>
                <span className="text-white">
@@ -256,7 +256,7 @@ export default function HeroSection({ onMovieSelect }: HeroSectionProps) {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleViewDetails}
-                className="inline-flex items-center gap-2 rounded-full bg-white/20 border border-white/30 text-white px-4 py-2.5 text-sm font-medium hover:bg-white/30 transition-all duration-200 backdrop-blur-sm"
+                className="inline-flex items-center gap-2 rounded-full bg-white/20 border border-white/30 text-white px-4 py-2.5 text-sm font-medium hover:bg-white/30 transition-all duration-200"
               >
                 <Info className="size-4" />
                 View Details

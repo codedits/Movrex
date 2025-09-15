@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useMemo, useCallback, useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useInView } from 'react-intersection-observer';
@@ -58,12 +58,12 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
   return (
     <article
       ref={ref}
-      className="group"
+      className="group cv-auto cis-card"
     >
       <Link
         href={movieLink}
         className="block"
-        prefetch={true}
+        prefetch={false}
         onMouseEnter={handleMouseEnter}
         onFocus={handleMouseEnter}
       >
@@ -71,7 +71,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
           {movie.poster_path && !imageError ? (
             <>
               <Image
-                src={TMDB.img(movie.poster_path, "w500")}
+                src={TMDB.img(movie.poster_path, typeof window !== 'undefined' && window.innerWidth <= 640 ? 'w300' : 'w500')}
                 alt={movieTitle}
                 fill
                 sizes="(max-width: 640px) 33vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
@@ -83,8 +83,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
                 loading="lazy"
                 onLoad={handleImageLoad}
                 onError={handleImageError}
-                placeholder="blur"
-                blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
+                placeholder={imageLoaded ? undefined : 'empty'}
               />
               {!imageLoaded && (
                 <div className="absolute inset-0 bg-gray-800 animate-pulse" />
@@ -96,7 +95,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
             </div>
           )}
           
-          <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
+          <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1">
             <span className="text-yellow-400">★</span>
             {(movie.vote_average ?? 0).toFixed(1)}
           </div>
@@ -121,12 +120,11 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
           </div>
         </div>
       </Link>
-  </article>
+    </article>
   );
 });
 
 MovieCard.displayName = 'MovieCard';
-
 interface VirtualizedMovieGridProps {
   movies: Movie[];
   loading?: boolean;

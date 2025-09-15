@@ -39,6 +39,9 @@ body {
   /* Disable complex animations on mobile for better performance */
   * {
     scroll-behavior: auto;
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+    will-change: auto !important;
   }
   
   /* Reduce motion on mobile */
@@ -52,6 +55,12 @@ body {
 .cv-auto {
   content-visibility: auto;
   contain-intrinsic-size: 800px; /* heuristic to reserve space */
+}
+
+/* Contain intrinsic size helper for card-like UI to avoid layout jank */
+.cis-card {
+  contain: layout paint size;
+  contain-intrinsic-size: 220px 320px;
 }
 
 .fade-in {
