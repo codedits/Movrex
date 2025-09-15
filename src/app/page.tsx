@@ -1006,13 +1006,13 @@ function HomeContent() {
           style={{ willChange: 'auto' }}
       >
         <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 backdrop-blur-sm ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
-        <div className="mx-auto max-w-7xl px-0 py-3">
-            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-2.5 sm:py-3">
-            <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg sm:text-xl font-semibold tracking-tight shrink-0">
-              <Image src="/movrex.svg" alt="Movrex" width={24} height={24} priority />
-              <span><span className="text-[--color-primary]">Mov</span>rex</span>
+        <div className="mx-auto max-w-7xl px-0 py-2">
+            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-3">
+            <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-sm sm:text-lg font-semibold tracking-tight shrink-0">
+              <Image src="/movrex.svg" alt="Movrex" width={20} height={20} priority className="w-5 h-5 sm:w-6 sm:h-6" />
+              <span className="text-sm sm:text-base"><span className="text-[--color-primary]">Mov</span>rex</span>
             </Link>
-            <div ref={searchBoxRef} className="order-2 basis-full sm:order-none sm:basis-auto ml-0 sm:ml-auto relative w-full sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-1 sm:pt-0">
+            <div ref={searchBoxRef} className="order-2 sm:order-none sm:basis-auto ml-2 sm:ml-auto relative w-auto sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-0 sm:pt-0 flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
               <input
                   placeholder="Search movies or actors..."
@@ -1030,7 +1030,7 @@ function HomeContent() {
                       setAreSuggestionsVisible(false);
                     }
                   }}
-                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2.5 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
                 />
                 {query && (
                   <button
@@ -1107,7 +1107,7 @@ function HomeContent() {
               ))}
             </nav>
           </div>
-          <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
+            <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
               <div className="flex items-center gap-2 w-max pb-1">
               {([
                 { key: "trending", label: "Trending" },
@@ -1119,7 +1119,7 @@ function HomeContent() {
                 <button
                   key={tab.key}
                   onClick={() => handleCategoryChange(tab.key)}
-                    className={`rounded-full px-4 py-2 text-sm border transition-all duration-200 ${
+                    className={`rounded-full px-3 py-1.5 text-xs sm:text-sm border transition-all duration-200 ${
                     category === tab.key
                         ? "bg-white text-black border-white shadow-lg"
                         : "bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:border-white/30"
@@ -1358,11 +1358,8 @@ function HomeContent() {
               }
               
               return (
-                <motion.article
+                <article
                   key={movie.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.3 }}
                   className="group"
                 >
                   <Link
@@ -1403,7 +1400,7 @@ function HomeContent() {
                     </p>
                   </div>
                 </Link>
-              </motion.article>
+              </article>
             );
           }).filter(Boolean)
           )}

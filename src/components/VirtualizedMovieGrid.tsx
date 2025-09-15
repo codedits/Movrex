@@ -3,7 +3,6 @@
 import React, { memo, useMemo, useCallback, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { useInView } from 'react-intersection-observer';
 
 type Movie = {
@@ -37,7 +36,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
   const [imageError, setImageError] = useState(false);
   
   // Simplified intersection observer
-  const { ref, inView } = useInView({
+  const { ref } = useInView({
     threshold: 0.1,
     triggerOnce: true,
     rootMargin: '50px',
@@ -57,14 +56,8 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
   const movieYear = movie.release_date?.split("-")[0] || movie.first_air_date?.split("-")[0] || "N/A";
 
   return (
-    <motion.article
+    <article
       ref={ref}
-      initial={{ opacity: 0, y: 20 }}
-      animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
-      transition={{ 
-        duration: 0.3, 
-        ease: "easeOut" 
-      }}
       className="group"
     >
       <Link
@@ -128,7 +121,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
           </div>
         </div>
       </Link>
-    </motion.article>
+  </article>
   );
 });
 
