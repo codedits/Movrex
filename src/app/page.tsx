@@ -122,6 +122,7 @@ function HomeContent() {
   const [suppressSuggestions, setSuppressSuggestions] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const urlUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Close suggestions on outside click or window blur
   useEffect(() => {
@@ -364,6 +365,16 @@ function HomeContent() {
     return () => { didCancel = true; clearTimeout(t); };
   }, []);
 
+  // Cleanup URL debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (urlUpdateTimeoutRef.current) {
+        clearTimeout(urlUpdateTimeoutRef.current);
+        urlUpdateTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // If chat stored a pending query, hydrate it once on mount
   useEffect(() => {
     try {
@@ -550,10 +561,9 @@ function HomeContent() {
     let controller: AbortController | null = null;
     const timeoutId = setTimeout(() => {
       if (isActorMode) return; // extra guard at execution time
-      if (isDev) console.log('🚀 Starting search for:', deferredQuery, 'page:', currentPage);
-      setLoading(true);
-      setShowNoResults(false); // Hide no results while loading
-      setResults([]); // Clear previous results immediately
+  if (isDev) console.log('🚀 Starting search for:', deferredQuery, 'page:', currentPage);
+  setLoading(true);
+  setShowNoResults(false); // Hide no results while loading
       controller = new AbortController();
       searchMovies(deferredQuery, currentPage, controller.signal)
         .then((data) => {
@@ -648,7 +658,7 @@ function HomeContent() {
             setShowNoResults(true);
           }
         })
-        .catch((error) => {
+  .catch((error) => {
           if (error instanceof Error && error.name === 'AbortError') {
             if (isDev) console.log('🔕 Search aborted');
             return;
@@ -666,6 +676,7 @@ function HomeContent() {
             }
           }
           
+          // Keep previous results to avoid jank; clear only on explicit errors
           setResults([]);
           setTotalResults(0);
           setTotalPages(1);
@@ -676,7 +687,7 @@ function HomeContent() {
           setShowNoResults(true);
         })
         .finally(() => setLoading(false));
-    }, 300); // debounce delay
+    }, 200); // debounce delay
 
     return () => {
       clearTimeout(timeoutId);
@@ -984,9 +995,15 @@ function HomeContent() {
     setQuery(next);
     setAreSuggestionsVisible(true);
     setSuppressSuggestions(false);
-    setCurrentPage(1); // Reset to first page when starting new search
-    const url = next.trim() ? `/?q=${encodeURIComponent(next.trim())}` : "/";
-    router.replace(url);
+    // Avoid resetting page on every keystroke (reduces re-renders/jank)
+    // Debounce URL updates to avoid flooding navigation on each keystroke
+    if (urlUpdateTimeoutRef.current) clearTimeout(urlUpdateTimeoutRef.current);
+    urlUpdateTimeoutRef.current = setTimeout(() => {
+      const url = next.trim() ? `/?q=${encodeURIComponent(next.trim())}` : "/";
+      try { router.replace(url); } catch {}
+      // Reset pagination once per debounced input commit
+      setCurrentPage(1);
+    }, 450);
   }, [router]);
 
   // Optimized event handlers
@@ -1036,14 +1053,15 @@ function HomeContent() {
         transition={{ duration: 0.8, delay: 0.2 }}
           style={{ willChange: 'auto' }}
       >
-  <header className={`sticky top-0 z-[9999] transition-transform duration-300 bg-black/20 ${scrollDir === "down" ? "-translate-y-full" : "translate-y-0"}`} style={{ willChange: 'auto' }}>
+  <header className={`md:sticky top-0 z-[9999] transition-transform duration-300 bg-black/70 ${scrollDir === "down" ? "md:-translate-y-full" : "md:translate-y-0"}`} style={{ willChange: 'auto' }}>
         <div className="mx-auto max-w-7xl px-0 py-2">
-            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/20 px-3 sm:px-4 py-1.5 sm:py-3">
+            <div className="mx-3 sm:mx-4 md:mx-6 lg:mx-8 flex flex-wrap items-center gap-2 sm:gap-4 rounded-2xl border border-white/10 bg-black/60 px-3 sm:px-4 py-1.5 sm:py-3">
+            
             <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-sm sm:text-lg font-semibold tracking-tight shrink-0">
               <Image src="/movrex.svg" alt="Movrex" width={20} height={20} priority className="w-5 h-5 sm:w-6 sm:h-6" />
               <span className="text-sm sm:text-base"><span className="text-[--color-primary]">Mov</span>rex</span>
             </Link>
-            <div ref={searchBoxRef} className="order-2 sm:order-none sm:basis-auto ml-2 sm:ml-auto relative w-auto sm:w-auto max-w-full sm:max-w-sm md:max-w-lg pt-0 sm:pt-0 flex-1 min-w-0">
+            <div ref={searchBoxRef} className="w-full sm:w-auto order-2 sm:order-none sm:basis-auto mt-2 sm:mt-0 ml-0 sm:ml-2 relative max-w-full sm:max-w-sm md:max-w-lg flex-none sm:flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
               <input
                   placeholder="Search movies or actors..."
@@ -1061,7 +1079,7 @@ function HomeContent() {
                       setAreSuggestionsVisible(false);
                     }
                   }}
-                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-20 sm:pr-10 py-2 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
+                  className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-8 sm:pr-20 py-2 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
                 />
                 {query && (
                   <button
@@ -1083,8 +1101,8 @@ function HomeContent() {
                   </button>
                 )}
                 {areSuggestionsVisible && personSuggestions.length > 0 && query.trim() && (
-                  <div className="absolute left-0 right-0 top-full mt-2 z-[10000]">
-                    <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-2 shadow-2xl">
+                  <div className="absolute left-0 top-full mt-2 z-[10000] w-full sm:max-w-sm md:max-w-lg">
+                    <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-2 shadow-2xl w-full">
                       <ul className="max-h-64 overflow-y-auto divide-y divide-white/10">
                         {personSuggestions.map((p) => (
                           <li key={p.id}>
@@ -1111,7 +1129,7 @@ function HomeContent() {
             {(query.trim() || filtersOpen) && (
               <button
                 onClick={() => setFiltersOpen((v) => !v)}
-                className="rounded-full px-3 py-1.5 text-sm border transition bg-white/5 text-white/90 border-white/10 hover:bg-white/10"
+                className="order-1 sm:order-none ml-auto sm:ml-2 rounded-full px-3 py-1.5 text-sm border transition bg-white/5 text-white/90 border-white/10 hover:bg-white/10"
               >
                 {filtersOpen ? 'Close Filters' : 'Filters'}
               </button>
@@ -1138,7 +1156,7 @@ function HomeContent() {
               ))}
             </nav>
           </div>
-            <nav className="md:hidden mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
+            <nav className="md:hidden order-3 mt-2 px-3 sm:px-4 overflow-x-auto no-scrollbar">
               <div className="flex items-center gap-2 w-max pb-1">
               {([
                 { key: "trending", label: "Trending" },
