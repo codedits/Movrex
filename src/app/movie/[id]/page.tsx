@@ -37,7 +37,7 @@ type Movie = {
 const TMDB = {
   base: "https://api.themoviedb.org/3",
   key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
-  img: (path: string, size: "w185" | "w342" | "w500" | "w780" | "original" = "w780") =>
+  img: (path: string, size: "w185" | "w300" | "w342" | "w500" | "w780" | "w1280" | "original" = "w780") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
 
@@ -452,7 +452,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                       {rec.poster_path ? (
                         <Image
-                          src={TMDB.img(rec.poster_path, "w500")}
+                          src={TMDB.img(rec.poster_path, "w300")}
                           alt={rec.title}
                           fill
                           sizes="140px"
@@ -500,7 +500,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                     {rec.poster_path ? (
                       <Image
-                        src={TMDB.img(rec.poster_path, "w500")}
+                        src={TMDB.img(rec.poster_path, "w300")}
                         alt={rec.title}
                         fill
                         sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 16vw"
@@ -554,7 +554,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                       {rec.poster_path ? (
                         <Image
-                          src={TMDB.img(rec.poster_path, "w500")}
+                          src={TMDB.img(rec.poster_path, "w300")}
                           alt={rec.title}
                           fill
                           sizes="140px"
@@ -602,7 +602,7 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                     {rec.poster_path ? (
                       <Image
-                        src={TMDB.img(rec.poster_path, "w500")}
+                        src={TMDB.img(rec.poster_path, "w300")}
                         alt={rec.title}
                         fill
                         sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 16vw"

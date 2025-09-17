@@ -28,7 +28,7 @@ type Movie = {
 const TMDB = {
   base: "https://api.themoviedb.org/3",
   key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
-  img: (path: string, size: "w300" | "w500" | "w780" | "original" = "w500") =>
+  img: (path: string, size: "w300" | "w500" | "w780" | "w1280" | "original" = "w500") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
 
@@ -94,6 +94,8 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [query, setQuery] = useState("");
+  // Immediate input the user types into; commit to `query` after debounce.
+  const [inputValue, setInputValue] = useState("");
   const [trending, setTrending] = useState<Movie[]>([]);
   const [results, setResults] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
@@ -381,6 +383,7 @@ function HomeContent() {
       const pending = localStorage.getItem('mm_pending_query');
       if (pending) {
         setQuery(pending);
+        setInputValue(pending);
         setCurrentPage(1);
         // Reflect into URL so back button works
         router.replace(`/?q=${encodeURIComponent(pending)}`);
@@ -395,6 +398,7 @@ function HomeContent() {
     const q = (searchParams?.get("q") || "").trim();
     if (q !== query) {
       setQuery(q);
+      setInputValue(q);
       setCurrentPage(1);
       // Exiting actor mode if URL-driven search arrives
       setIsActorMode(false);
@@ -404,7 +408,7 @@ function HomeContent() {
     }
   }, [searchParams]);
 
-  // Avoid a loop: only URL-update during direct input (handleSearchChange above)
+  // Avoid a loop: only URL-update during direct input
 
   // Optimized category fetch (preload early for hero)
   useEffect(() => {
@@ -687,7 +691,7 @@ function HomeContent() {
           setShowNoResults(true);
         })
         .finally(() => setLoading(false));
-    }, 200); // debounce delay
+    }, 60); // debounce delay
 
     return () => {
       clearTimeout(timeoutId);
@@ -695,11 +699,11 @@ function HomeContent() {
     };
   }, [deferredQuery, currentPage, searchMovies, isActorMode, moviesPerPage, filtersActive, filters.searchType, filters.sortBy, sortMoviesBy]);
 
-  // Fetch suggestions on query change (debounced)
+  // Fetch suggestions on inputValue change (debounced) — stay responsive while the main search is debounced
   useEffect(() => {
     // If in actor mode, keep it active unless the user changes the query
     if (isActorMode) {
-      if (actorQueryAtActivation !== null && query !== actorQueryAtActivation) {
+      if (actorQueryAtActivation !== null && inputValue !== actorQueryAtActivation) {
         // User changed query: clear actor filter
         setIsActorMode(false);
         setSelectedActorName(null);
@@ -713,13 +717,13 @@ function HomeContent() {
     // If filters specify actor mode, fetch ACTOR suggestions for the current query (used internally, not shown in dropdown)
     if (filtersActive && (filters.searchType ?? 'movie') === 'actor') {
       setPersonSuggestions([]);
-      if (!query || !query.trim()) return;
+      if (!inputValue || !inputValue.trim()) return;
       const controller = new AbortController();
       const timeoutId = setTimeout(async () => {
         try {
-          const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
-          if (personCache.has(query)) {
-            const fromCache = personCache.get(query)!;
+          const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(inputValue)}&api_key=${TMDB.key}`;
+          if (personCache.has(inputValue)) {
+            const fromCache = personCache.get(inputValue)!;
             setPersonSuggestions(fromCache);
             return;
           }
@@ -765,10 +769,10 @@ function HomeContent() {
           return;
         }
         
-        const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB.key}`;
+        const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(inputValue)}&api_key=${TMDB.key}`;
         // reuse cache shape; store top 5 movie suggestions as {id,name:title}
-        if (personCache.has(query)) {
-          const fromCache = personCache.get(query)!;
+        if (personCache.has(inputValue)) {
+          const fromCache = personCache.get(inputValue)!;
           setPersonSuggestions(fromCache);
           return;
         }
@@ -784,7 +788,7 @@ function HomeContent() {
         
         // Debug logging for problematic queries
         if (isDev) {
-          console.log('🔍 TMDB suggestions response for query:', query);
+          console.log('🔍 TMDB suggestions response for query:', inputValue);
           console.log('📊 Response structure:', {
             hasData: !!data,
             dataType: typeof data,
@@ -838,15 +842,15 @@ function HomeContent() {
           .slice(0, 5) as Array<{ id: number; name: string }>;
           
         if (mapped.length > 0) {
-          personCache.set(query, mapped);
+          personCache.set(inputValue, mapped);
           setPersonSuggestions(mapped);
         } else {
           // Try fuzzy fallback suggestions
           const fuse = fuseRef.current;
-          if (fuse && query.trim()) {
-            const f = fuse.search(query.trim(), { limit: 5 }).map(r => ({ id: r.item.id, name: r.item.title || r.item.name || '' }));
+          if (fuse && inputValue.trim()) {
+            const f = fuse.search(inputValue.trim(), { limit: 5 }).map(r => ({ id: r.item.id, name: r.item.title || r.item.name || '' }));
             if (f.length > 0) {
-              personCache.set(query, f);
+              personCache.set(inputValue, f);
               setPersonSuggestions(f);
               return;
             }
@@ -928,13 +932,13 @@ function HomeContent() {
     if (filtersActive) {
       return Array.isArray(results) ? results : [];
     }
-    // If we're searching, only show search results (never fall back to trending)
-    if (query.trim()) {
+    // Use deferredQuery so the UI doesn't flip immediately while typing
+    if (deferredQuery && deferredQuery.trim()) {
       return Array.isArray(results) ? results : [];
     }
     // If not searching, show trending movies
     return Array.isArray(trending) ? trending.slice(0, moviesPerPage) : [];
-  }, [filtersActive, query, results, trending]);
+  }, [filtersActive, deferredQuery, results, trending]);
   
   // Featured memo not used separately (hero uses heroMovies instead)
 
@@ -990,27 +994,14 @@ function HomeContent() {
     }
   }, [currentPage, totalPages]);
 
-  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const next = e.target.value;
-    setQuery(next);
-    setAreSuggestionsVisible(true);
-    setSuppressSuggestions(false);
-    // Avoid resetting page on every keystroke (reduces re-renders/jank)
-    // Debounce URL updates to avoid flooding navigation on each keystroke
-    if (urlUpdateTimeoutRef.current) clearTimeout(urlUpdateTimeoutRef.current);
-    urlUpdateTimeoutRef.current = setTimeout(() => {
-      const url = next.trim() ? `/?q=${encodeURIComponent(next.trim())}` : "/";
-      try { router.replace(url); } catch {}
-      // Reset pagination once per debounced input commit
-      setCurrentPage(1);
-    }, 450);
-  }, [router]);
+  
 
   // Optimized event handlers
   const handleLogoClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setCategory("trending");
     setQuery("");
+    setInputValue("");
     setResults([]);
     setTotalResults(0);
     setTotalPages(1);
@@ -1026,6 +1017,7 @@ function HomeContent() {
   const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming" | "anime") => {
     setCategory(next);
     setQuery("");
+    setInputValue("");
     setResults([]);
     setTotalResults(0);
     setTotalPages(1);
@@ -1065,14 +1057,37 @@ function HomeContent() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-white/60" />
               <input
                   placeholder="Search movies or actors..."
-                value={query}
-                onChange={handleSearchChange}
+                value={inputValue}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setInputValue(next);
+                  setAreSuggestionsVisible(true);
+                  setSuppressSuggestions(false);
+
+                  // Debounce committing the typed value to `query` and updating URL
+                  if (urlUpdateTimeoutRef.current) clearTimeout(urlUpdateTimeoutRef.current as NodeJS.Timeout);
+                  urlUpdateTimeoutRef.current = setTimeout(() => {
+                    const committed = next.trim();
+                    const url = committed ? `/?q=${encodeURIComponent(committed)}` : "/";
+                    try { router.replace(url); } catch {}
+                    // update the debounced query used by heavy search logic
+                    setQuery(committed);
+                    // Reset pagination when a new query is committed
+                    setCurrentPage(1);
+                  }, 500);
+                }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === 'NumpadEnter') {
-                      // Commit search and close suggestions
+                      // Immediately commit on Enter
+                      if (urlUpdateTimeoutRef.current) clearTimeout(urlUpdateTimeoutRef.current as NodeJS.Timeout);
+                      const committed = inputValue.trim();
+                      const url = committed ? `/?q=${encodeURIComponent(committed)}` : "/";
+                      try { router.replace(url); } catch {}
+                      setQuery(committed);
                       setPersonSuggestions([]);
                       setAreSuggestionsVisible(false);
                       setSuppressSuggestions(true);
+                      setCurrentPage(1);
                     } else if (e.key === 'Escape' && personSuggestions.length > 0) {
                       e.preventDefault();
                       setPersonSuggestions([]);
@@ -1081,11 +1096,12 @@ function HomeContent() {
                   }}
                   className="w-full rounded-xl bg-white/10 border border-white/20 pl-10 sm:pl-11 pr-8 sm:pr-20 py-2 sm:py-2 outline-none focus:ring-2 focus:ring-white/30 hover:border-white/40 focus:border-white/50 transition-all duration-300 text-sm sm:text-base placeholder:text-white/50 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] focus:shadow-[0_0_25px_rgba(255,255,255,0.15)] focus:shadow-[0_0_35px_rgba(255,255,255,0.1)]"
                 />
-                {query && (
+                {inputValue && (
                   <button
                     aria-label="Clear search"
                     onClick={() => {
                       setQuery("");
+                      setInputValue("");
                       setIsActorMode(false);
                       setSelectedActorName(null);
                       setActorAllMovies([]);
@@ -1100,7 +1116,7 @@ function HomeContent() {
                     Clear
                   </button>
                 )}
-                {areSuggestionsVisible && personSuggestions.length > 0 && query.trim() && (
+                {areSuggestionsVisible && personSuggestions.length > 0 && inputValue.trim() && (
                   <div className="absolute left-0 top-full mt-2 z-[10000] w-full sm:max-w-sm md:max-w-lg">
                     <div className="rounded-xl border border-white/20 bg-black/95 backdrop-blur-md p-2 shadow-2xl w-full">
                       <ul className="max-h-64 overflow-y-auto divide-y divide-white/10">
@@ -1108,11 +1124,14 @@ function HomeContent() {
                           <li key={p.id}>
                             <button
                               onClick={() => {
-                                setQuery(p.name);
+                                const committed = p.name;
+                                setQuery(committed);
+                                setInputValue(committed);
                                 setPersonSuggestions([]);
                                 setCurrentPage(1);
                                 setAreSuggestionsVisible(false);
                                 setSuppressSuggestions(true);
+                                try { router.replace(`/?q=${encodeURIComponent(committed)}`); } catch {}
                               }}
                               className="w-full text-left px-3 py-2 hover:bg-white/10 focus:bg-white/10 rounded-lg flex items-center justify-between gap-3"
                             >
@@ -1282,16 +1301,14 @@ function HomeContent() {
                   >
                     {movie.backdrop_path || movie.poster_path ? (
           <Image
-                        src={TMDB.img(movie.backdrop_path || movie.poster_path || "", "original")}
-                        alt={movie.title || movie.name || "Featured"}
-                    fill
-                    sizes="100vw"
-                    className="object-cover"
-                        priority={index === 0}
-                        loading={index === 0 ? "eager" : "lazy"}
-                    placeholder="blur"
-                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
-                  />
+                        src={TMDB.img(movie.backdrop_path || movie.poster_path || "", "w1280")}
+            alt={movie.title || movie.name || "Featured"}
+          fill
+          sizes="100vw"
+          className="object-cover"
+            priority={index === 0}
+            loading={index === 0 ? "eager" : "lazy"}
+          />
               ) : (
                 <div className="absolute inset-0 grid place-content-center text-white/40">
                   No preview
@@ -1392,7 +1409,7 @@ function HomeContent() {
             )}
         </motion.div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4 stable-grid">
           {loading ? (
             // Show skeleton loaders while loading
             Array.from({ length: 18 }).map((_, i) => (
@@ -1421,7 +1438,7 @@ function HomeContent() {
                   <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
                     {movie.poster_path ? (
           <Image
-                        src={TMDB.img(movie.poster_path, "w500")}
+            src={TMDB.img(movie.poster_path, "w300")}
                         alt={movie.title || movie.name || "Movie"}
                         fill
                           sizes="(max-width: 640px) 33vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"

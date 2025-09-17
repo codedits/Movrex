@@ -22,7 +22,7 @@ type Movie = {
 const TMDB = {
   base: "https://api.themoviedb.org/3",
   key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
-  img: (path: string, size: "w300" | "w500" | "w780" | "original" = "w500") =>
+  img: (path: string, size: "w300" | "w500" | "w780" | "w1280" | "original" = "w500") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
 
@@ -167,7 +167,7 @@ export default function HeroSection({ onMovieSelect }: HeroSectionProps) {
            >
             {currentMovie.backdrop_path ? (
               <Image
-                src={TMDB.img(currentMovie.backdrop_path, "original")}
+                src={TMDB.img(currentMovie.backdrop_path, "w1280")}
                 alt={currentMovie.title || currentMovie.name || "Featured Movie"}
                 fill
                 sizes="100vw"

@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* Theme variables (moved into :root further below) */
@@ -50,6 +49,12 @@ body {
 .cv-auto {
   content-visibility: auto;
   contain-intrinsic-size: 800px; /* heuristic to reserve space */
+}
+
+/* Stabilize grid layout to avoid forced reflow when child content changes */
+.stable-grid {
+  contain: layout paint;
+  will-change: transform, opacity;
 }
 
 /* Contain intrinsic size helper for card-like UI to avoid layout jank */

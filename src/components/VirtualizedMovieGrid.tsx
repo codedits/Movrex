@@ -20,7 +20,7 @@ type Movie = {
 };
 
 const TMDB = {
-  img: (path: string, size: "w300" | "w500" | "w780" | "original" = "w500") =>
+  img: (path: string, size: "w300" | "w500" | "w780" | "w1280" | "original" = "w500") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
 
@@ -71,7 +71,7 @@ const MovieCard = memo<MovieCardProps>(({ movie, onPrefetch, query }) => {
           {movie.poster_path && !imageError ? (
             <>
               <Image
-                src={TMDB.img(movie.poster_path, typeof window !== 'undefined' && window.innerWidth <= 640 ? 'w300' : 'w500')}
+                src={TMDB.img(movie.poster_path, 'w300')}
                 alt={movieTitle}
                 fill
                 sizes="(max-width: 640px) 33vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
