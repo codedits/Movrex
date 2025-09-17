@@ -54,30 +54,24 @@ const searchCache = new Map<string, TMDBSearchResponse>(); // key: `${query}::${
 const personCache = new Map<string, Array<{ id: number; name: string }>>(); // key: query -> people list
 const creditsCache = new Map<number, Movie[]>(); // key: personId -> movies
 
-// Helper: pick best hero movies (single pass selection of top 3)
-function getBestHeroMovies(list: Movie[]): Movie[] {
+// Helper: pick N random hero movies from the trending list
+function getRandomHeroMovies(list: Movie[], count = 3): Movie[] {
   if (!Array.isArray(list) || list.length === 0) return [];
-  const score = (m: Movie): number => {
-    const r = typeof m.vote_average === 'number' ? m.vote_average : 0;
-    const p = typeof m.popularity === 'number' ? m.popularity : 0;
-    // weight rating higher; tie-breaker by popularity
-    return r * 1000 + p; // preserves order without floats
-  };
-  const pick: Movie[] = [];
-  for (const m of list) {
-    if (!m) continue;
-    if (pick.length < 3) {
-      pick.push(m);
-      if (pick.length === 3) pick.sort((a, b) => score(b) - score(a));
-      continue;
-    }
-    if (score(m) > score(pick[2])) {
-      pick[2] = m;
-      pick.sort((a, b) => score(b) - score(a));
-    }
+
+  // Prefer movies that have a backdrop or poster
+  const withImages = list.filter((m) => !!(m.backdrop_path || m.poster_path));
+  // Use the image-bearing set when it's large enough, otherwise fall back to the full list
+  const source = (withImages.length >= count ? withImages.slice() : list.slice());
+
+  // Fisher-Yates shuffle
+  for (let i = source.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = source[i];
+    source[i] = source[j];
+    source[j] = tmp;
   }
-  const withImages = pick.filter(m => !!(m.backdrop_path || m.poster_path));
-  return withImages.length >= 3 ? withImages.slice(0, 3) : pick.slice(0, 3);
+
+  return source.slice(0, Math.min(count, source.length));
 }
 
 // Skeleton loader component
@@ -944,9 +938,9 @@ function HomeContent() {
 
   // Hero carousel (top 3 best movies)
   const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
-  const heroMovies = useMemo(() => {
+  const heroMovies = useMemo<Movie[]>(() => {
     if (deferredQuery || !trending || trending.length === 0) return [];
-    return getBestHeroMovies(trending);
+    return getRandomHeroMovies(trending, 3);
   }, [deferredQuery, trending]);
 
   // Advance hero every 5 seconds with smooth transition
