@@ -10,7 +10,7 @@ type ChatMessage = {
   content: string;
 };
 
-const BK9_ENDPOINT = "https://api.bk9.dev/ai/gemini";
+const PAXSENIX_ENDPOINT = "https://api.paxsenix.org/v1/gpt-4o/chat";
 
 const SYSTEM_PROMPT =
   "You are Movie Master, a helpful movie recommendation assistant inside the Movrex app. Be concise, friendly, and focus on recommending great films with year and genre. When helpful, suggest related titles. Keep answers under 3-5 lines. Format movie titles in **bold** so the UI can make them clickable.";
@@ -103,32 +103,37 @@ export default function MovieMasterChat() {
     return lines.join("\n");
   }, []);
 
-  const sendToBK9 = useCallback(async (userText: string, contextTranscript: string): Promise<string> => {
+  const sendToPaxsenix = useCallback(async (transcript: string): Promise<string> => {
     try {
-      // Use the Gemini API, send the transcript as 'q'
-      const url = `${BK9_ENDPOINT}?q=${encodeURIComponent(contextTranscript)}`;
-      const res = await fetch(url, { 
-        method: "GET", 
+      // Trim transcript to a safe length for a GET param (avoid very long URLs)
+      const MAX_LEN = 3000;
+      let payload = transcript;
+      if (typeof payload === 'string' && payload.length > MAX_LEN) {
+        // prefer to keep the most recent context
+        payload = payload.slice(payload.length - MAX_LEN);
+      }
+      // Use the Paxsenix GPT-4o API, send the transcript as 'text' param
+      const url = `${PAXSENIX_ENDPOINT}?text=${encodeURIComponent(payload)}`;
+      const res = await fetch(url, {
+        method: "GET",
         headers: { Accept: "application/json" },
-        // Add timeout to prevent hanging requests
-        signal: AbortSignal.timeout(15000) // 15 second timeout
+        signal: AbortSignal.timeout(15000)
       });
-      
       if (!res.ok) {
-        console.error(`BK9 API error: ${res.status} ${res.statusText}`);
+        console.error(`Paxsenix API error: ${res.status} ${res.statusText}`);
         throw new Error(`API error: ${res.status}`);
       }
-      
       const data = await res.json();
-      
-      // Check if the API returned an error
-      if (data.status === false) {
-        console.error('BK9 API returned error:', data.err);
-        throw new Error(data.err || 'API returned error status');
+      // Paxsenix may return { ok: true, message: "..." } or { response: "..." }
+      if (data && typeof data === 'object') {
+        if (data.ok === false) {
+          console.error('Paxsenix returned ok=false:', data);
+          throw new Error('API returned error');
+        }
+        const msg = (data.message as string) || (data.response as string) || (data.reply as string) || (data.text as string);
+        if (msg && typeof msg === 'string') return msg;
       }
-      
-      // Return the response from the Gemini API
-      return (data?.BK9 as string) || (data?.response as string) || "Sorry, I couldn't generate a reply right now.";
+      return "Sorry, I couldn't generate a reply right now.";
     } catch (error) {
       console.error('Chat API error:', error);
       throw error;
@@ -139,18 +144,16 @@ export default function MovieMasterChat() {
     const text = input.trim();
     if (!text || sending) return;
     setSending(true);
-    // Prepare context with current history plus this user message
-    const transcript = buildTranscript(messages, text);
     setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
     try {
-      const reply = await sendToBK9(text, transcript);
+      // Build a compact transcript including the system prompt and recent messages
+      const transcript = buildTranscript(messages, text);
+      const reply = await sendToPaxsenix(transcript);
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch (error) {
       console.error('Chat error:', error);
       let errorMessage = "Hmm, I'm having trouble reaching the recommendation service. Please try again in a moment.";
-      
-      // Provide more specific error messages based on the error type
       if (error instanceof Error) {
         if (error.message.includes('timeout') || error.message.includes('AbortError')) {
           errorMessage = "The request took too long. Please try again.";
@@ -160,7 +163,6 @@ export default function MovieMasterChat() {
           errorMessage = "The AI service is temporarily unavailable. Please try again later.";
         }
       }
-      
       setMessages((m) => [
         ...m,
         { role: "assistant", content: errorMessage },
@@ -168,7 +170,7 @@ export default function MovieMasterChat() {
     } finally {
       setSending(false);
     }
-  }, [input, sending, messages, buildTranscript, sendToBK9]);
+  }, [input, sending, messages, sendToPaxsenix]);
 
   const handleQuick = useCallback((text: string) => {
     setInput(text);
