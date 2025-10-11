@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const cache = new Map<string, { data: unknown; timestamp: number; ttl: number }>();
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
+const TMDB_KEY = process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY;
+const TMDB_ACCESS_TOKEN = process.env.TMDB_ACCESS_TOKEN;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes in milliseconds
 
 interface Movie {
@@ -92,12 +93,26 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Build TMDB API URL
+    // Build TMDB API URL and headers (prefer v4 token)
     let tmdbUrl: string;
     if (category === 'trending') {
-      tmdbUrl = `${TMDB_BASE}/trending/movie/${timeWindow}?api_key=${TMDB_KEY}&page=${page}`;
+      tmdbUrl = `${TMDB_BASE}/trending/movie/${timeWindow}?page=${page}`;
     } else {
-      tmdbUrl = `${TMDB_BASE}/movie/${category}?api_key=${TMDB_KEY}&page=${page}`;
+      tmdbUrl = `${TMDB_BASE}/movie/${category}?page=${page}`;
+    }
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'User-Agent': 'Movrex/1.0',
+    };
+
+    if (TMDB_ACCESS_TOKEN) {
+      headers['Authorization'] = `Bearer ${TMDB_ACCESS_TOKEN}`;
+    } else if (TMDB_KEY) {
+      // attach api_key as query param when no bearer token
+      tmdbUrl += `&api_key=${TMDB_KEY}`;
+    } else {
+      return NextResponse.json({ error: 'TMDB API key not configured' }, { status: 500 });
     }
 
     // Fetch from TMDB with timeout and abort support
@@ -107,10 +122,7 @@ export async function GET(request: NextRequest) {
     try {
       const response = await fetch(tmdbUrl, {
         signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Movrex/1.0',
-        },
+        headers,
       });
 
       clearTimeout(timeoutId);

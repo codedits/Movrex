@@ -35,11 +35,32 @@ type Movie = {
 };
 
 const TMDB = {
-  base: "https://api.themoviedb.org/3",
-  key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
   img: (path: string, size: "w185" | "w300" | "w342" | "w500" | "w780" | "w1280" | "original" = "w780") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
+
+// Server-side TMDB configuration (used inside this server component)
+const TMDB_SERVER_BASE = 'https://api.themoviedb.org/3';
+const TMDB_SERVER_KEY = process.env.TMDB_API_KEY;
+const TMDB_ACCESS_TOKEN = process.env.TMDB_ACCESS_TOKEN;
+
+function buildTmdbUrl(path: string, params?: Record<string, string>) {
+  const url = new URL(`${TMDB_SERVER_BASE}${path}`);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  }
+  // if no bearer token, attach api_key
+  if (!TMDB_ACCESS_TOKEN && TMDB_SERVER_KEY) {
+    url.searchParams.set('api_key', TMDB_SERVER_KEY);
+  }
+  return url.toString();
+}
+
+function buildTmdbHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (TMDB_ACCESS_TOKEN) headers['Authorization'] = `Bearer ${TMDB_ACCESS_TOKEN}`;
+  return headers;
+}
 
 // Constants for repeated blur data URLs
 const BLUR_DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q==";
@@ -57,8 +78,8 @@ type RegionProviders = {
 
 async function fetchWatchProviders(movieId: string): Promise<{ region: string; data: RegionProviders } | null> {
   try {
-    const url = `${TMDB.base}/movie/${movieId}/watch/providers?api_key=${TMDB.key}`;
-    const res = await fetch(url, { next: { revalidate: 60 * 60 } });
+    const url = buildTmdbUrl(`/movie/${movieId}/watch/providers`);
+    const res = await fetch(url, { next: { revalidate: 60 * 60 }, headers: buildTmdbHeaders() });
     if (!res.ok) return null;
     const json = await res.json();
     const results = json?.results || {};
@@ -76,8 +97,8 @@ async function fetchWatchProviders(movieId: string): Promise<{ region: string; d
 // Fetch collection parts if the movie belongs to a collection
 async function fetchCollectionParts(collectionId: number): Promise<Movie[]> {
   try {
-    const url = `${TMDB.base}/collection/${collectionId}?api_key=${TMDB.key}&language=en-US`;
-    const res = await fetch(url, { next: { revalidate: 60 * 60 } });
+    const url = buildTmdbUrl(`/collection/${collectionId}`, { language: 'en-US' });
+    const res = await fetch(url, { next: { revalidate: 60 * 60 }, headers: buildTmdbHeaders() });
     if (!res.ok) return [];
     const json = await res.json();
     const parts = Array.isArray(json?.parts) ? json.parts : [];
@@ -105,16 +126,20 @@ const MovieDetailSkeleton = () => (
 );
 
 async function fetchMovie(id: string): Promise<Movie> {
-  const url = `${TMDB.base}/movie/${id}?api_key=${TMDB.key}&append_to_response=credits,videos,images,keywords,recommendations&include_image_language=en,null`;
-  
-  const res = await fetch(url, { 
-    next: { revalidate: 60 * 60 }, // Cache for 1 hour
-    headers: {
-      'Accept': 'application/json',
-    }
+  const url = buildTmdbUrl(`/movie/${id}`, {
+    append_to_response: 'credits,videos,images,keywords,recommendations',
+    include_image_language: 'en,null',
   });
-  
+
+  const res = await fetch(url, {
+    next: { revalidate: 60 * 60 }, // Cache for 1 hour
+    headers: buildTmdbHeaders(),
+  });
+  console.log('[TMDB] fetch URL:', url);
+  console.log('[TMDB] response status:', res.status);
   if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error('[TMDB] non-OK response:', res.status, text);
     if (res.status === 404) {
       throw new Error('Movie not found');
     } else if (res.status === 401) {
@@ -122,10 +147,10 @@ async function fetchMovie(id: string): Promise<Movie> {
     } else if (res.status >= 500) {
       throw new Error('Server error, please try again later');
     } else {
-      throw new Error(`Failed to fetch movie: ${res.status}`);
+      throw new Error(`Failed to fetch movie: ${res.status} ${text}`);
     }
   }
-  
+
   return res.json();
 }
 
@@ -137,15 +162,17 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
   const q = typeof sp.q === 'string' ? sp.q : undefined;
   
   let movie: Movie;
+  let fetchErrorMessage: string | null = null;
   try {
     movie = await fetchMovie(id);
-  } catch {
+  } catch (err) {
+    fetchErrorMessage = err instanceof Error ? err.message : String(err);
     return (
       <div className="mx-auto max-w-6xl px-4 py-8">
         <Link href={q ? `/?q=${encodeURIComponent(q)}` : "/"} className="text-white/70 hover:text-white transition-colors">← Back</Link>
         <div className="mt-6 text-center">
           <p className="text-white/70 text-lg">Failed to load movie.</p>
-          <p className="text-white/50 text-sm mt-2">Please try again later.</p>
+          <p className="text-white/50 text-sm mt-2">{fetchErrorMessage || 'Please try again later.'}</p>
         </div>
       </div>
     );

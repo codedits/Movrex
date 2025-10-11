@@ -26,8 +26,8 @@ type Movie = {
 };
 
 const TMDB = {
-  base: "https://api.themoviedb.org/3",
-  key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
+  // Route client requests to our server-side proxy which keeps the key secret
+  base: "/api/tmdb",
   img: (path: string, size: "w300" | "w500" | "w780" | "w1280" | "original" = "w500") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
@@ -182,18 +182,13 @@ function HomeContent() {
   // Separate search function that returns full API response
   const searchMovies = useCallback(async (query: string, page: number, signal: AbortSignal) => {
     try {
-      if (!TMDB.key) {
-        console.error('TMDB API key is not configured');
-        return null;
-      }
-      
       const cacheKey = `${query}::${page}`;
       if (searchCache.has(cacheKey)) {
         if (isDev) console.log('⚡ cache hit (search):', cacheKey);
         return searchCache.get(cacheKey);
       }
       
-      const movieEndpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB.key}&page=${page}`;
+  const movieEndpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&page=${page}`;
       const movieRes = await fetch(movieEndpoint, { signal });
       
       if (!movieRes.ok) {
@@ -318,7 +313,7 @@ function HomeContent() {
       // Resolve actor name -> person id (first match) when provided
       if ((f.searchType === "actor" || f.actorName) && f.actorName && f.actorName.trim()) {
         try {
-          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(f.actorName.trim())}&api_key=${TMDB.key}`;
+          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(f.actorName.trim())}`;
           const res = await fetch(url, { signal });
           const data = await res.json();
           const pid = Array.isArray(data?.results) && data.results.length > 0 ? data.results[0]?.id : undefined;
@@ -340,13 +335,9 @@ function HomeContent() {
     }
   }, []);
 
-  // Check TMDB API key configuration
+  // Sanity: log that client will use server proxy for TMDB
   useEffect(() => {
-    if (!TMDB.key) {
-      console.error('❌ TMDB API key is not configured. Please check your environment variables.');
-    } else if (isDev) {
-      console.log('✅ TMDB API key is configured');
-    }
+    if (isDev) console.log('Client TMDB base set to', TMDB.base);
   }, []);
 
   // Hide loading screen after initial content preloads
@@ -411,12 +402,12 @@ function HomeContent() {
     const controller = new AbortController();
     let endpoint: string;
     if (category === "trending") {
-      endpoint = `${TMDB.base}/trending/movie/week?api_key=${TMDB.key}`;
+      endpoint = `${TMDB.base}/trending/movie/week`;
     } else if (category === "anime") {
       // Use discover to filter Animation genre (id 16) and prefer Japanese originals
-      endpoint = `${TMDB.base}/discover/movie?with_genres=16&with_original_language=ja&sort_by=popularity.desc&api_key=${TMDB.key}`;
+      endpoint = `${TMDB.base}/discover/movie?with_genres=16&with_original_language=ja&sort_by=popularity.desc`;
     } else {
-      endpoint = `${TMDB.base}/movie/${category}?api_key=${TMDB.key}`;
+      endpoint = `${TMDB.base}/movie/${category}`;
     }
     
     setLoading(true);
@@ -438,7 +429,7 @@ function HomeContent() {
     let cancelled = false;
     (async () => {
       try {
-        const url = `${TMDB.base}/genre/movie/list?api_key=${TMDB.key}`;
+  const url = `${TMDB.base}/genre/movie/list`;
         const res = await fetch(url, { cache: 'force-cache' });
         const data = await res.json();
         const list: Genre[] = Array.isArray(data?.genres) ? data.genres : [];
@@ -469,7 +460,7 @@ function HomeContent() {
             return;
           }
           const name = filters.actorName?.trim() || query.trim();
-          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(name)}&api_key=${TMDB.key}`;
+          const url = `${TMDB.base}/search/person?query=${encodeURIComponent(name)}`;
           const res = await fetch(url, { signal: controller.signal });
           const data = await res.json();
           const personId = Array.isArray(data?.results) && data.results.length > 0 ? data.results[0]?.id : undefined;
@@ -480,7 +471,7 @@ function HomeContent() {
             setShowNoResults(true);
             return;
           }
-          const creditsEndpoint = `${TMDB.base}/person/${personId}/movie_credits?api_key=${TMDB.key}`;
+          const creditsEndpoint = `${TMDB.base}/person/${personId}/movie_credits`;
           const cres = await fetch(creditsEndpoint, { signal: controller.signal });
           const cdata = await cres.json();
           const movies: Movie[] = Array.isArray(cdata?.cast) ? cdata.cast : [];
@@ -715,7 +706,7 @@ function HomeContent() {
       const controller = new AbortController();
       const timeoutId = setTimeout(async () => {
         try {
-          const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(inputValue)}&api_key=${TMDB.key}`;
+          const endpoint = `${TMDB.base}/search/person?query=${encodeURIComponent(inputValue)}`;
           if (personCache.has(inputValue)) {
             const fromCache = personCache.get(inputValue)!;
             setPersonSuggestions(fromCache);
@@ -758,12 +749,7 @@ function HomeContent() {
     const controller = new AbortController();
     const timeoutId = setTimeout(async () => {
       try {
-        if (!TMDB.key) {
-          console.error('TMDB API key is not configured for suggestions');
-          return;
-        }
-        
-        const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(inputValue)}&api_key=${TMDB.key}`;
+        const endpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(inputValue)}`;
         // reuse cache shape; store top 5 movie suggestions as {id,name:title}
         if (personCache.has(inputValue)) {
           const fromCache = personCache.get(inputValue)!;
@@ -869,7 +855,7 @@ function HomeContent() {
     try {
       let allMovies: Movie[] = creditsCache.get(selected.id) ?? [];
       if (allMovies.length === 0) {
-        const creditsEndpoint = `${TMDB.base}/person/${selected.id}/movie_credits?api_key=${TMDB.key}`;
+  const creditsEndpoint = `${TMDB.base}/person/${selected.id}/movie_credits`;
         const res = await fetch(creditsEndpoint);
         if (!res.ok) throw new Error('Failed to fetch person credits');
         const creditsData = await res.json();

@@ -20,8 +20,7 @@ type Movie = {
 };
 
 const TMDB = {
-  base: "https://api.themoviedb.org/3",
-  key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
+  base: "/api/tmdb",
   img: (path: string, size: "w300" | "w500" | "w780" | "w1280" | "original" = "w500") =>
     `https://image.tmdb.org/t/p/${size}${path}`,
 };
@@ -43,13 +42,7 @@ export default function HeroSection({ onMovieSelect }: HeroSectionProps) {
         setLoading(true);
         setError(null);
 
-        if (!TMDB.key) {
-          throw new Error("TMDB API key is not configured");
-        }
-
-        const response = await fetch(
-          `${TMDB.base}/trending/movie/week?api_key=${TMDB.key}`
-        );
+        const response = await fetch(`${TMDB.base}/trending/movie/week`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch trending movies: ${response.status}`);

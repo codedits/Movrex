@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 const TMDB = {
   base: "https://api.themoviedb.org/3",
-  key: process.env.NEXT_PUBLIC_TMDB_API_KEY,
+  key: process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY,
+  token: process.env.TMDB_ACCESS_TOKEN,
 };
 
 // Supports TMDB discover parameters via query string, e.g.:
@@ -46,8 +47,8 @@ export async function GET(req: Request) {
       ? `${TMDB.base}/discover/movie`
       : `${TMDB.base}/movie/popular`;
 
-    const out = new URL(baseEndpoint);
-    if (TMDB.key) out.searchParams.set("api_key", TMDB.key);
+  const out = new URL(baseEndpoint);
+  if (TMDB.key && !TMDB.token) out.searchParams.set("api_key", TMDB.key);
     out.searchParams.set("page", page);
 
     if (withGenres) out.searchParams.set("with_genres", withGenres);
@@ -59,7 +60,10 @@ export async function GET(req: Request) {
     if (voteAverageLte) out.searchParams.set("vote_average.lte", voteAverageLte);
     if (sortBy) out.searchParams.set("sort_by", sortBy);
 
-    const res = await fetch(out.toString(), { next: { revalidate: 60 } });
+  const headers: Record<string, string> = {};
+  if (TMDB.token) headers['Authorization'] = `Bearer ${TMDB.token}`;
+
+  const res = await fetch(out.toString(), { next: { revalidate: 60 }, headers });
     const data = await res.json();
     return NextResponse.json(data);
   } catch (e) {
