@@ -15,6 +15,7 @@ type Movie = {
   id: number;
   title?: string;
   name?: string;
+  media_type?: "movie" | "tv" | "person";
   overview: string;
   poster_path: string | null;
   backdrop_path: string | null;
@@ -93,9 +94,10 @@ function HomeContent() {
   const [trending, setTrending] = useState<Movie[]>([]);
   const [results, setResults] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
-  const [category, setCategory] = useState<"trending" | "popular" | "top_rated" | "upcoming" | "anime">(
+  const [category, setCategory] = useState<"trending" | "popular" | "top_rated" | "upcoming" | "anime" | "now_playing" | "tv_trending">(
     "trending"
   );
+  const [trendingPeople, setTrendingPeople] = useState<Array<{id:number;name:string;profile_path:string|null;known_for_department:string}>>([]);
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   
@@ -188,7 +190,7 @@ function HomeContent() {
         return searchCache.get(cacheKey);
       }
       
-  const movieEndpoint = `${TMDB.base}/search/movie?query=${encodeURIComponent(query)}&page=${page}`;
+  const movieEndpoint = `${TMDB.base}/search/multi?query=${encodeURIComponent(query)}&page=${page}`;
       const movieRes = await fetch(movieEndpoint, { signal });
       
       if (!movieRes.ok) {
@@ -309,6 +311,11 @@ function HomeContent() {
       params.set("page", String(page));
       // Only sorting + actor/movie selection are supported now
       if (f.sortBy) params.set("sort_by", f.sortBy);
+      if (f.genreIds.length > 0) params.set("with_genres", f.genreIds.join(","));
+      if (f.yearFrom) params.set("release_date_gte", `${f.yearFrom}-01-01`);
+      if (f.yearTo) params.set("release_date_lte", `${f.yearTo}-12-31`);
+      if (f.ratingFrom) params.set("vote_average_gte", f.ratingFrom);
+      if (f.ratingTo) params.set("vote_average_lte", f.ratingTo);
 
       // Resolve actor name -> person id (first match) when provided
       if ((f.searchType === "actor" || f.actorName) && f.actorName && f.actorName.trim()) {
@@ -403,8 +410,11 @@ function HomeContent() {
     let endpoint: string;
     if (category === "trending") {
       endpoint = `${TMDB.base}/trending/movie/week`;
+    } else if (category === "tv_trending") {
+      endpoint = `${TMDB.base}/trending/tv/week`;
+    } else if (category === "now_playing") {
+      endpoint = `${TMDB.base}/movie/now_playing`;
     } else if (category === "anime") {
-      // Use discover to filter Animation genre (id 16) and prefer Japanese originals
       endpoint = `${TMDB.base}/discover/movie?with_genres=16&with_original_language=ja&sort_by=popularity.desc`;
     } else {
       endpoint = `${TMDB.base}/movie/${category}`;
@@ -422,6 +432,18 @@ function HomeContent() {
 
     return () => controller.abort();
   }, [category, query, fetchMovies]);
+
+  // Fetch trending people (once on mount)
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${TMDB.base}/trending/person/week`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data?.results)) setTrendingPeople(data.results.slice(0, 12));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   // Load genres when opening filters
   useEffect(() => {
@@ -573,7 +595,7 @@ function HomeContent() {
           }
           
           if (data && data.results && Array.isArray(data.results) && data.results.length > 0) {
-            let list = data.results as Movie[];
+            let list = (data.results as Movie[]).filter(r => r.media_type !== 'person');
             
             // Debug the results before sorting
             if (isDev) {
@@ -994,7 +1016,7 @@ function HomeContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [router]);
 
-  const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming" | "anime") => {
+  const handleCategoryChange = useCallback((next: "trending" | "popular" | "top_rated" | "upcoming" | "anime" | "now_playing" | "tv_trending") => {
     setCategory(next);
     setQuery("");
     setInputValue("");
@@ -1138,7 +1160,9 @@ function HomeContent() {
                 { key: "trending", label: "Trending" },
                 { key: "popular", label: "Popular" },
                 { key: "top_rated", label: "Top Rated" },
+                { key: "now_playing", label: "In Theaters" },
                 { key: "upcoming", label: "Upcoming" },
+                { key: "tv_trending", label: "TV Shows" },
                 { key: "anime", label: "Anime" },
               ] as const).map((tab) => (
                 <button
@@ -1161,7 +1185,9 @@ function HomeContent() {
                 { key: "trending", label: "Trending" },
                 { key: "popular", label: "Popular" },
                 { key: "top_rated", label: "Top Rated" },
+                { key: "now_playing", label: "In Theaters" },
                 { key: "upcoming", label: "Upcoming" },
+                { key: "tv_trending", label: "TV Shows" },
                 { key: "anime", label: "Anime" },
               ] as const).map((tab) => (
                 <button
@@ -1217,7 +1243,76 @@ function HomeContent() {
                     <option value="primary_release_date.asc">Release date ↑</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Year range</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="From"
+                      min="1900"
+                      max="2030"
+                      value={filters.yearFrom}
+                      onChange={(e) => setFilters((f) => ({ ...f, yearFrom: e.target.value }))}
+                      className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30 text-white text-sm placeholder:text-white/40"
+                    />
+                    <input
+                      type="number"
+                      placeholder="To"
+                      min="1900"
+                      max="2030"
+                      value={filters.yearTo}
+                      onChange={(e) => setFilters((f) => ({ ...f, yearTo: e.target.value }))}
+                      className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30 text-white text-sm placeholder:text-white/40"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Rating range</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      min="0"
+                      max="10"
+                      step="0.5"
+                      value={filters.ratingFrom}
+                      onChange={(e) => setFilters((f) => ({ ...f, ratingFrom: e.target.value }))}
+                      className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30 text-white text-sm placeholder:text-white/40"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      min="0"
+                      max="10"
+                      step="0.5"
+                      value={filters.ratingTo}
+                      onChange={(e) => setFilters((f) => ({ ...f, ratingTo: e.target.value }))}
+                      className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 outline-none focus:ring-2 focus:ring-white/30 text-white text-sm placeholder:text-white/40"
+                    />
+                  </div>
+                </div>
               </div>
+              {allGenres.length > 0 && (
+                <div className="mt-4">
+                  <label className="block text-sm text-white/70 mb-2">Genres</label>
+                  <div className="flex flex-wrap gap-2">
+                    {allGenres.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => setFilters((f) => ({
+                          ...f,
+                          genreIds: f.genreIds.includes(g.id)
+                            ? f.genreIds.filter((id) => id !== g.id)
+                            : [...f.genreIds, g.id],
+                        }))}
+                        className={`rounded-full px-3 py-1 text-xs border transition-all ${filters.genreIds.includes(g.id) ? 'bg-white text-black border-white' : 'bg-white/5 text-white/70 border-white/15 hover:bg-white/10'}`}
+                      >
+                        {g.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-4 flex items-center gap-2">
                 <button
                   onClick={() => {
@@ -1238,7 +1333,7 @@ function HomeContent() {
                 </button>
                 <button
                   onClick={() => {
-                    setFilters((f) => ({ ...f, sortBy: 'popularity.desc', searchType: 'movie' }));
+                    setFilters((f) => ({ ...f, sortBy: 'popularity.desc', searchType: 'movie', genreIds: [], yearFrom: '', yearTo: '', ratingFrom: '', ratingTo: '' }));
                     setFiltersActive(false);
                     setIsActorMode(false);
                     setSelectedActorName(null);
@@ -1339,7 +1434,7 @@ function HomeContent() {
                     whileTap={{ scale: 0.95 }}
                   >
                     <Link
-                        href={`/movie/${heroMovies[currentHeroIndex]?.id}`}
+                        href={`/${heroMovies[currentHeroIndex]?.media_type === 'tv' ? 'tv' : 'movie'}/${heroMovies[currentHeroIndex]?.id}`}
                         className="inline-flex items-center gap-2 rounded-full bg-red-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-red-700 transition-colors shadow-lg drop-shadow-[0_0_15px_rgba(239,68,68,0.6)]"
                         onMouseEnter={() => { const id = heroMovies[currentHeroIndex]?.id; if (typeof id === 'number') handlePrefetchMovie(id); }}
                         onFocus={() => { const id = heroMovies[currentHeroIndex]?.id; if (typeof id === 'number') handlePrefetchMovie(id); }}
@@ -1371,7 +1466,7 @@ function HomeContent() {
           className="mb-6"
         >
           <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
-            {filtersActive ? 'Filtered results' : (query ? "Search results" : `${category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ')} this week`)}
+            {filtersActive ? 'Filtered results' : (query ? "Search results" : ({'trending':'Trending this week','popular':'Popular movies','top_rated':'Top rated','upcoming':'Upcoming movies','now_playing':'In theaters now','tv_trending':'Trending TV shows','anime':'Anime'}[category] || category))}
           </h2>
             {isActorMode && selectedActorName && (
               <div className="mt-1 text-white/60 text-sm flex items-center gap-3">
@@ -1409,7 +1504,7 @@ function HomeContent() {
                   className="group"
                 >
                   <Link
-                    href={query.trim() ? { pathname: `/movie/${movie.id}`, query: { q: query.trim() } } : `/movie/${movie.id}`}
+                    href={query.trim() ? { pathname: `/${movie.media_type === 'tv' ? 'tv' : 'movie'}/${movie.id}`, query: { q: query.trim() } } : `/${movie.media_type === 'tv' ? 'tv' : 'movie'}/${movie.id}`}
                     className="block"
                     prefetch={true}
                     onMouseEnter={() => handlePrefetchMovie(movie.id)}
@@ -1603,7 +1698,7 @@ function HomeContent() {
             <h3 className="text-lg font-semibold mb-2">Now trending</h3>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                     {trending.slice(0, 12).map((m) => (
-                      <Link key={m.id} href={`/movie/${m.id}`} className="w-[110px] shrink-0" prefetch={true} onMouseEnter={() => handlePrefetchMovie(m.id)} onFocus={() => handlePrefetchMovie(m.id)}>
+                      <Link key={m.id} href={`/${m.media_type === 'tv' ? 'tv' : 'movie'}/${m.id}`} className="w-[110px] shrink-0" prefetch={true} onMouseEnter={() => handlePrefetchMovie(m.id)} onFocus={() => handlePrefetchMovie(m.id)}>
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/10 bg-gray-900">
                     {m.poster_path ? (
                       <Image src={TMDB.img(m.poster_path, 'w300')} alt={m.title || m.name || 'Movie'} fill sizes="20vw" className="object-cover" />
@@ -1624,6 +1719,28 @@ function HomeContent() {
             <div className="text-center text-white/40">
               <p className="text-lg mb-2">🎬 Welcome to Movrex!</p>
               <p className="text-sm">Start searching for movies or browse trending content</p>
+            </div>
+          </section>
+        )}
+
+        {/* Trending People */}
+        {trendingPeople.length > 0 && (
+          <section className="mx-auto max-w-7xl px-4 mt-6 mb-8 cv-auto">
+            <h3 className="text-lg font-semibold mb-2">Trending People</h3>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+              {trendingPeople.map((p) => (
+                <Link key={p.id} href={`/person/${p.id}`} className="w-[90px] shrink-0 text-center group">
+                  <div className="relative w-[80px] h-[80px] mx-auto overflow-hidden rounded-full border-2 border-white/10 bg-gray-900 group-hover:border-white/30 transition-colors">
+                    {p.profile_path ? (
+                      <Image src={TMDB.img(p.profile_path, 'w300')} alt={p.name} fill sizes="80px" className="object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40 text-[10px]">No photo</div>
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs line-clamp-2 text-white/80 group-hover:text-white transition-colors">{p.name}</div>
+                  <div className="text-[10px] text-white/40">{p.known_for_department}</div>
+                </Link>
+              ))}
             </div>
           </section>
         )}

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import MovieGallery from "@/components/MovieGallery";
 import { FadeIn, ScaleIn } from "@/components/Reveal";
 import RecentViewBeacon from "@/components/RecentViewBeacon";
+import StarRating from "@/components/StarRating";
 
 type Movie = {
   id: number;
@@ -32,6 +33,29 @@ type Movie = {
   };
   keywords?: { keywords?: { id: number; name: string }[]; results?: { id: number; name: string }[] };
   recommendations?: { results: Movie[] };
+  similar?: { results: Movie[] };
+  reviews?: {
+    results: {
+      id: string;
+      author: string;
+      content: string;
+      created_at: string;
+      author_details?: { rating?: number | null; avatar_path?: string | null };
+    }[];
+  };
+  release_dates?: {
+    results: { iso_3166_1: string; release_dates: { certification: string; type: number }[] }[];
+  };
+  external_ids?: {
+    imdb_id?: string | null;
+    facebook_id?: string | null;
+    instagram_id?: string | null;
+    twitter_id?: string | null;
+    wikidata_id?: string | null;
+  };
+  tagline?: string;
+  budget?: number;
+  revenue?: number;
 };
 
 const TMDB = {
@@ -127,7 +151,7 @@ const MovieDetailSkeleton = () => (
 
 async function fetchMovie(id: string): Promise<Movie> {
   const url = buildTmdbUrl(`/movie/${id}`, {
-    append_to_response: 'credits,videos,images,keywords,recommendations',
+    append_to_response: 'credits,videos,images,keywords,recommendations,similar,reviews,release_dates,external_ids',
     include_image_language: 'en,null',
   });
 
@@ -180,11 +204,23 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
 
   const directors = movie.credits?.crew.filter((c) => c.job === "Director") || [];
   const ytTrailer = movie.videos?.results.find((v) => v.site === "YouTube" && v.type === "Trailer");
+  const allVideos = movie.videos?.results || [];
+  const featurettes = allVideos.filter((v) => v.site === "YouTube" && v.type !== "Trailer").slice(0, 6);
   const keywords = (movie.keywords?.keywords || movie.keywords?.results || []) as { id: number; name: string }[];
   const cast = (movie.credits?.cast || []).slice(0, 12);
   const recs = movie.recommendations?.results?.slice(0, 12) || [];
+  const similar = movie.similar?.results?.slice(0, 12) || [];
+  const reviews = movie.reviews?.results?.slice(0, 5) || [];
   const posters = movie.images?.posters?.slice(0, 12) || [];
   const backdrops = movie.images?.backdrops?.slice(0, 12) || [];
+  const ext = movie.external_ids || {};
+
+  // Certification (prefer US)
+  const releaseDates = movie.release_dates?.results || [];
+  const usRelease = releaseDates.find((r) => r.iso_3166_1 === "US");
+  const certification = usRelease?.release_dates?.find((rd) => rd.certification)?.certification
+    || releaseDates[0]?.release_dates?.find((rd) => rd.certification)?.certification
+    || null;
   const watchNowUrl = `https://moviebox.ph/web/searchResult?keyword=${encodeURIComponent(
     movie.title.replace(/\s+/g, '+')
   )}`;
@@ -226,12 +262,19 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
           <div className="md:col-span-2">
             <FadeIn>
               <h1 className="text-3xl font-semibold tracking-tight">{movie.title}</h1>
-           
+              {movie.tagline && (
+                <p className="mt-1 text-white/50 italic text-sm">&ldquo;{movie.tagline}&rdquo;</p>
+              )}
               <div className="mt-2 text-white/70 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span><span className="text-yellow-400">★</span> {movie.vote_average?.toFixed(1)}</span>
                 {movie.release_date && <span>· {movie.release_date?.slice(0, 4)}</span>}
                 {movie.runtime && <span>· {movie.runtime} min</span>}
                 {movie.popularity && <span>· Popularity {Math.round(movie.popularity)}</span>}
+                {certification && (
+                  <span className="ml-1 rounded border border-white/30 px-1.5 py-0.5 text-[10px] font-bold text-white/90 tracking-wide">
+                    {certification}
+                  </span>
+                )}
               </div>
             </FadeIn>
 
@@ -251,6 +294,41 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
               <p className="mt-4 text-white/80 leading-relaxed max-w-prose">{movie.overview}</p>
             </FadeIn>
 
+            {/* Rate this movie */}
+            <FadeIn delay={0.11}>
+              <div className="mt-4">
+                <StarRating mediaId={movie.id} mediaType="movie" />
+              </div>
+            </FadeIn>
+
+            {/* External links */}
+            {(ext.imdb_id || ext.facebook_id || ext.instagram_id || ext.twitter_id) && (
+              <FadeIn delay={0.115}>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {ext.imdb_id && (
+                    <a href={`https://www.imdb.com/title/${ext.imdb_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 px-3 py-1.5 text-xs font-semibold text-yellow-400 hover:bg-yellow-500/20 transition">
+                      IMDb
+                    </a>
+                  )}
+                  {ext.instagram_id && (
+                    <a href={`https://instagram.com/${ext.instagram_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-pink-500/10 border border-pink-500/20 px-3 py-1.5 text-xs font-semibold text-pink-400 hover:bg-pink-500/20 transition">
+                      Instagram
+                    </a>
+                  )}
+                  {ext.twitter_id && (
+                    <a href={`https://twitter.com/${ext.twitter_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 px-3 py-1.5 text-xs font-semibold text-sky-400 hover:bg-sky-500/20 transition">
+                      X
+                    </a>
+                  )}
+                  {ext.facebook_id && (
+                    <a href={`https://facebook.com/${ext.facebook_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-500/20 transition">
+                      Facebook
+                    </a>
+                  )}
+                </div>
+              </FadeIn>
+            )}
+
             <FadeIn delay={0.12}>
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-white/80">
               <div>
@@ -267,6 +345,12 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                   )}
                   {directors.length > 0 && (
                     <p><span className="text-white/60">Director{directors.length > 1 ? 's' : ''}:</span> {directors.map(d => d.name).join(", ")}</p>
+                  )}
+                  {movie.budget && movie.budget > 0 && (
+                    <p><span className="text-white/60">Budget:</span> ${(movie.budget / 1_000_000).toFixed(1)}M</p>
+                  )}
+                  {movie.revenue && movie.revenue > 0 && (
+                    <p><span className="text-white/60">Revenue:</span> ${(movie.revenue / 1_000_000).toFixed(1)}M</p>
                   )}
                 </div>
               </div>
@@ -356,6 +440,22 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                       Watch Now
                     </a>
                   </div>
+                  {featurettes.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {featurettes.map((v) => (
+                        <a
+                          key={v.key}
+                          href={`https://www.youtube.com/watch?v=${v.key}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 transition"
+                        >
+                          <svg className="w-3.5 h-3.5 text-red-400" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>
+                          {v.name.length > 40 ? v.name.slice(0, 37) + '...' : v.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </FadeIn>
             )}
@@ -370,8 +470,9 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
             <div className="block sm:hidden">
               <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                 {cast.map((person) => (
-                  <ScaleIn key={person.id}>
-                  <div className="text-center w-[120px] shrink-0">
+                  <Link key={person.id} href={`/person/${person.id}`} className="shrink-0">
+                  <ScaleIn>
+                  <div className="text-center w-[120px]">
                     <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900 mb-2">
                       {person.profile_path ? (
                         <Image
@@ -396,15 +497,17 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     )}
                   </div>
                   </ScaleIn>
+                  </Link>
                 ))}
               </div>
             </div>
             {/* Desktop Grid */}
             <div className="hidden sm:grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {cast.map((person) => (
-                <ScaleIn key={person.id}>
+                <Link key={person.id} href={`/person/${person.id}`} className="group">
+                <ScaleIn>
                 <div className="text-center">
-                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900 mb-2">
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900 mb-2 group-hover:border-white/30 transition-colors">
                     {person.profile_path ? (
                       <Image
                         src={TMDB.img(person.profile_path, "w342")}
@@ -422,12 +525,13 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                       </div>
                     )}
                   </div>
-                  <p className="text-sm font-medium">{person.name}</p>
+                  <p className="text-sm font-medium group-hover:text-white/80">{person.name}</p>
                   {person.character && (
                     <p className="text-xs text-white/60">{person.character}</p>
                   )}
                 </div>
                 </ScaleIn>
+                </Link>
               ))}
             </div>
           </section>
@@ -444,6 +548,36 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                 ...posters.map((p) => ({ src: TMDB.img(p.file_path, "w780"), alt: "Poster" })),
               ]}
             />
+          </section>
+          </FadeIn>
+        )}
+
+        {/* Reviews */}
+        {reviews.length > 0 && (
+          <FadeIn>
+          <section className="mt-12">
+            <h2 className="text-2xl font-semibold mb-6">Reviews</h2>
+            <div className="space-y-4">
+              {reviews.map((review) => (
+                <div key={review.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-white/10 grid place-content-center text-sm font-semibold text-white/70">
+                      {review.author.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{review.author}</p>
+                      <div className="flex items-center gap-2 text-xs text-white/50">
+                        {review.author_details?.rating && (
+                          <span><span className="text-yellow-400">★</span> {review.author_details.rating}/10</span>
+                        )}
+                        <span>{new Date(review.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-white/70 leading-relaxed line-clamp-4">{review.content}</p>
+                </div>
+              ))}
+            </div>
           </section>
           </FadeIn>
         )}
@@ -663,6 +797,58 @@ export default async function MovieDetail({ params, searchParams }: { params: Pr
                     >
                       Watch Now
                     </a>
+                  </div>
+                  </ScaleIn>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+        {/* Similar Movies */}
+        {similar.length > 0 && (
+          <section className="mt-12">
+            <h2 className="text-2xl font-semibold mb-6">Similar Movies</h2>
+            <div className="block sm:hidden">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                {similar.map((s) => (
+                  <Link key={s.id} href={`/movie/${s.id}`} className="group w-[140px] shrink-0">
+                    <ScaleIn>
+                    <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                      {s.poster_path ? (
+                        <Image src={TMDB.img(s.poster_path, "w300")} alt={s.title} fill sizes="140px" className="object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" placeholder="blur" blurDataURL={BLUR_DATA_URL} />
+                      ) : (
+                        <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">No image</div>
+                      )}
+                      <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-0.5 text-xs font-medium flex items-center gap-1">
+                        <span className="text-yellow-400">★</span>{(s.vote_average ?? 0).toFixed(1)}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <h3 className="font-medium text-sm line-clamp-2">{s.title}</h3>
+                      <p className="text-white/60 text-xs mt-1">{s.release_date?.split("-")[0] || "N/A"}</p>
+                    </div>
+                    </ScaleIn>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {similar.map((s) => (
+                <Link key={s.id} href={`/movie/${s.id}`} className="group">
+                  <ScaleIn>
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-white/10 bg-gray-900">
+                    {s.poster_path ? (
+                      <Image src={TMDB.img(s.poster_path, "w300")} alt={s.title} fill sizes="16vw" className="object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" placeholder="blur" blurDataURL={BLUR_DATA_URL} />
+                    ) : (
+                      <div className="absolute inset-0 grid place-content-center text-white/40 text-sm">No image</div>
+                    )}
+                    <div className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-0.5 text-xs font-medium flex items-center gap-1">
+                      <span className="text-yellow-400">★</span>{(s.vote_average ?? 0).toFixed(1)}
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <h3 className="font-medium text-base line-clamp-2">{s.title}</h3>
+                    <p className="text-white/60 text-xs mt-1">{s.release_date?.split("-")[0] || "N/A"}</p>
                   </div>
                   </ScaleIn>
                 </Link>

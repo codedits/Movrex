@@ -93,6 +93,16 @@ export default memo(function Footer() {
                   Upcoming
                 </Link>
               </li>
+              <li>
+                <Link href="/?category=now_playing" className="text-gray-400 hover:text-white transition-colors duration-200">
+                  In Theaters
+                </Link>
+              </li>
+              <li>
+                <Link href="/?category=tv_trending" className="text-gray-400 hover:text-white transition-colors duration-200">
+                  TV Shows
+                </Link>
+              </li>
             </ul>
           </div>
 
