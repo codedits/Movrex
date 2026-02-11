@@ -10,10 +10,6 @@ type ChatMessage = {
   content: string;
 };
 
-const PAXSENIX_ENDPOINT = "https://api.paxsenix.org/v1/gemini-3-flash/chat";
-const PAXSENIX_FALLBACK_ENDPOINT = "https://api.paxsenix.org/v1/gpt-4o/chat";
-const PAXSENIX_API_KEY = "sk-paxsenix-Scra3NYwHUKuhLrpJ4e-PugnHCkgA7ltnOpDpWBgPNJoZq6y";
-
 const SYSTEM_PROMPT =
   "You are Movie Master, a helpful movie recommendation assistant inside the Movrex app. Be concise, friendly, and focus on recommending great films with year and genre. When helpful, suggest related titles. Keep answers under 3-5 lines. Format movie titles in **bold** so the UI can make them clickable.";
 
@@ -106,57 +102,24 @@ export default function MovieMasterChat() {
   }, []);
 
   const sendToPaxsenix = useCallback(async (transcript: string): Promise<string> => {
-    const fetchWithTimeout = async (endpoint: string, timeoutMs: number) => {
-      const url = `${endpoint}?text=${encodeURIComponent(payload)}`;
-      return fetch(url, {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${PAXSENIX_API_KEY}`,
-        },
-        signal: AbortSignal.timeout(timeoutMs)
-      });
-    };
-
-    // Trim transcript to a safe length for a GET param (avoid very long URLs)
-    const MAX_LEN = 900;
-    let payload = transcript;
-    if (typeof payload === 'string' && payload.length > MAX_LEN) {
-      // prefer to keep the most recent context
-      payload = payload.slice(payload.length - MAX_LEN);
-    }
-
     try {
-      let res;
-      try {
-        // Try Gemini 3 Flash with a 15-second timeout
-        res = await fetchWithTimeout(PAXSENIX_ENDPOINT, 15000);
-      } catch (geminiError: any) {
-        // If it times out (AbortError) or fails, try GPT-4o
-        if (geminiError.name === 'TimeoutError' || geminiError.name === 'AbortError') {
-          console.warn('Gemini 3 Flash timed out, switching to GPT-4o fallback...');
-          res = await fetchWithTimeout(PAXSENIX_FALLBACK_ENDPOINT, 15000);
-        } else {
-          throw geminiError;
-        }
-      }
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: transcript }),
+      });
 
       if (!res.ok) {
         const errText = await res.text().catch(() => "No error details");
-        console.error(`Paxsenix API error: ${res.status} ${res.statusText}`, errText);
+        console.error(`Chat API error: ${res.status} ${res.statusText}`, errText);
         throw new Error(`API error: ${res.status} - ${errText}`);
       }
+      
       const data = await res.json();
+      
       // Paxsenix may return { ok: true, message: "..." } or { response: "..." }
       if (data && typeof data === 'object') {
         if (data.ok === false) {
-          if (data.message?.includes('busy')) {
-            console.warn('Gemini busy, trying GPT-4o...');
-            const fallbackRes = await fetchWithTimeout(PAXSENIX_FALLBACK_ENDPOINT, 15000);
-            const fallbackData = await fallbackRes.json();
-            return fallbackData.message || fallbackData.response || "Sorry, I couldn't generate a reply.";
-          }
           console.error('Paxsenix returned ok=false:', data);
           throw new Error('API returned error');
         }
