@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import MovieMasterChat from "../components/MovieMasterChat";
 import Footer from "../components/Footer";
@@ -75,6 +76,7 @@ export default function RootLayout({
         {children}
         <Footer />
         <MovieMasterChat />
+        <Analytics />
       </body>
     </html>
   );
