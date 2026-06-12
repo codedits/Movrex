@@ -43,7 +43,16 @@ function getCachedData(key: string) {
   return cached.data;
 }
 
+const MAX_CACHE_SIZE = 100;
+
 function setCachedData(key: string, data: unknown, ttl: number = CACHE_TTL) {
+  // Evict the oldest entry if cache exceeds max size to prevent memory leaks in warm containers
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) {
+      cache.delete(oldestKey);
+    }
+  }
   cache.set(key, {
     data,
     timestamp: Date.now(),
@@ -51,15 +60,8 @@ function setCachedData(key: string, data: unknown, ttl: number = CACHE_TTL) {
   });
 }
 
-// Clean up expired cache entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, cached] of cache.entries()) {
-    if (now - cached.timestamp > cached.ttl) {
-      cache.delete(key);
-    }
-  }
-}, 5 * 60 * 1000); // Clean up every 5 minutes
+// Note: setInterval is removed because serverless functions are ephemeral and active timers keep the CPU event loop running.
+// Cache items are already lazily cleared inside getCachedData() when accessed.
 
 export async function GET(request: NextRequest) {
   try {

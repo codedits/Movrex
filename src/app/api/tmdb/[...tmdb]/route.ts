@@ -32,8 +32,12 @@ export async function GET(req: NextRequest) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    const res = await fetch(targetUrl.toString(), { signal: controller.signal, headers });
-    clearTimeout(timeoutId);
+    let res: Response;
+    try {
+      res = await fetch(targetUrl.toString(), { signal: controller.signal, headers });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const body = await res.text();
 
